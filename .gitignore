@@ -1,0 +1,13 @@
+# Environment files
+.env
+.env*.local
+
+# Node dependencies
+node_modules/
+
+# Logs and temporary files
+*.log
+.temp/
+
+# Generated AI training export datasets
+training_dataset/

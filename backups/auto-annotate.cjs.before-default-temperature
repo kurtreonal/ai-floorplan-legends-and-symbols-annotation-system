@@ -1,0 +1,705 @@
+// auto-annotate.cjs
+// Automatic symbol annotation engine for VED portable review workspace
+// Implements GEMINI-SYMBOL-DETECTION-HANDOFF.md and GEMINI-SYMBOL-DETECTION-PROMPT.txt
+// Uses gemini-3.8-flash, sharp contact sheets, overlapping tiles, strict schema, zero emojis.
+
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const sharp = require('sharp');
+const AnnotationCore = require('./editor-core.js');
+
+const referencesPath = path.join(__dirname, 'approved-references.json');
+const promptPathCandidate1 = path.join(__dirname, 'GEMINI-SYMBOL-DETECTION-PROMPT.txt');
+const promptPathCandidate2 = path.join(__dirname, '..', '..', 'GEMINI-SYMBOL-DETECTION-PROMPT.txt');
+const promptPath = fs.existsSync(promptPathCandidate1) ? promptPathCandidate1 : promptPathCandidate2;
+
+let cachedReferenceData = null;
+let cachedReferenceMtime = 0;
+
+function loadReferences(forceReload = false) {
+  if (!fs.existsSync(referencesPath)) return null;
+  const stat = fs.statSync(referencesPath);
+  if (forceReload || !cachedReferenceData || stat.mtimeMs !== cachedReferenceMtime) {
+    cachedReferenceData = JSON.parse(fs.readFileSync(referencesPath, 'utf8'));
+    cachedReferenceMtime = stat.mtimeMs;
+  }
+  return cachedReferenceData;
+}
+
+function loadSystemPrompt() {
+  if (fs.existsSync(promptPath)) {
+    return fs.readFileSync(promptPath, 'utf8');
+  }
+  return 'You detect missing symbols in a VED floor-plan drawing using approved workspace examples.';
+}
+
+// Convert 0-1000 normalized [ymin, xmin, ymax, xmax] to [xmin, ymin, xmax, ymax] in sheet pixels
+function convertBoxToSheetPixels(box_2d, width, height) {
+  const [ymin, xmin, ymax, xmax] = box_2d;
+  const pxMinX = Math.max(0, Math.min(width, Math.round((xmin * width) / 1000.0)));
+  const pxMinY = Math.max(0, Math.min(height, Math.round((ymin * height) / 1000.0)));
+  const pxMaxX = Math.max(0, Math.min(width, Math.round((xmax * width) / 1000.0)));
+  const pxMaxY = Math.max(0, Math.min(height, Math.round((ymax * height) / 1000.0)));
+  return [pxMinX, pxMinY, pxMaxX, pxMaxY];
+}
+
+// Convert tile-relative 0-1000 box [ymin, xmin, ymax, xmax] to full sheet pixel coordinates
+function convertTileBoxToSheetPixels(box_2d, tile) {
+  const [ymin, xmin, ymax, xmax] = box_2d;
+  const pxMinX = Math.round(tile.x0 + (xmin * tile.w) / 1000.0);
+  const pxMinY = Math.round(tile.y0 + (ymin * tile.h) / 1000.0);
+  const pxMaxX = Math.round(tile.x0 + (xmax * tile.w) / 1000.0);
+  const pxMaxY = Math.round(tile.y0 + (ymax * tile.h) / 1000.0);
+  return [pxMinX, pxMinY, pxMaxX, pxMaxY];
+}
+
+// Generate overlapping tiles for large drawings
+function generateOverlappingTiles(width, height, tileSize = 1024, overlap = 200) {
+  if (width <= 1200 && height <= 1200) {
+    return [{ id: 'tile-r0c0', x0: 0, y0: 0, x1: width, y1: height, w: width, h: height }];
+  }
+  const step = Math.max(100, tileSize - overlap);
+  const tiles = [];
+  let col = 0;
+  for (let x = 0; x < width; x += step) {
+    let x0 = x;
+    let x1 = Math.min(width, x0 + tileSize);
+    if (x1 - x0 < tileSize && x0 > 0) {
+      x0 = Math.max(0, width - tileSize);
+      x1 = width;
+    }
+    let row = 0;
+    for (let y = 0; y < height; y += step) {
+      let y0 = y;
+      let y1 = Math.min(height, y0 + tileSize);
+      if (y1 - y0 < tileSize && y0 > 0) {
+        y0 = Math.max(0, height - tileSize);
+        y1 = height;
+      }
+      tiles.push({
+        id: `tile-r${row}c${col}`,
+        x0, y0, x1, y1,
+        w: x1 - x0,
+        h: y1 - y0
+      });
+      row++;
+      if (y1 >= height) break;
+    }
+    col++;
+    if (x1 >= width) break;
+  }
+  return tiles;
+}
+
+// Check IoU between two bounding boxes [xmin, ymin, xmax, ymax]
+function computeIoU(b1, b2) {
+  const xA = Math.max(b1[0], b2[0]);
+  const yA = Math.max(b1[1], b2[1]);
+  const xB = Math.min(b1[2], b2[2]);
+  const yB = Math.min(b1[3], b2[3]);
+  const interW = Math.max(0, xB - xA);
+  const interH = Math.max(0, yB - yA);
+  const interArea = interW * interH;
+  const area1 = (b1[2] - b1[0]) * (b1[3] - b1[1]);
+  const area2 = (b2[2] - b2[0]) * (b2[3] - b2[1]);
+  const union = area1 + area2 - interArea;
+  return union > 0 ? interArea / union : 0;
+}
+
+// Check containment ratio of b1 in b2
+function computeContainment(b1, b2) {
+  const xA = Math.max(b1[0], b2[0]);
+  const yA = Math.max(b1[1], b2[1]);
+  const xB = Math.min(b1[2], b2[2]);
+  const yB = Math.min(b1[3], b2[3]);
+  const interW = Math.max(0, xB - xA);
+  const interH = Math.max(0, yB - yA);
+  const interArea = interW * interH;
+  const area1 = (b1[2] - b1[0]) * (b1[3] - b1[1]);
+  return area1 > 0 ? interArea / area1 : 0;
+}
+
+// Build 4x4 contact sheets of 256x256 cells using Sharp
+// Up to 4 contact sheets (total 64 reference cells max)
+async function buildContactSheets(referenceItems) {
+  const contactSheets = [];
+  const manifestReferences = [];
+  const itemsPerSheet = 16;
+  const maxSheets = 4;
+  const totalItems = Math.min(referenceItems.length, itemsPerSheet * maxSheets);
+
+  for (let sIdx = 0; sIdx < maxSheets; sIdx++) {
+    const start = sIdx * itemsPerSheet;
+    if (start >= totalItems) break;
+    const end = Math.min(totalItems, start + itemsPerSheet);
+    const sheetItems = referenceItems.slice(start, end);
+
+    const sheetId = `refs-${sIdx}`;
+    const composites = [];
+
+    for (let i = 0; i < sheetItems.length; i++) {
+      const item = sheetItems[i];
+      const r = Math.floor(i / 4);
+      const c = i % 4;
+      const cellLeft = c * 256;
+      const cellTop = r * 256;
+      const token = `REF-${String(start + i + 1).padStart(2, '0')}`;
+
+      // Crop and resize sample glyph
+      let cropBuffer = null;
+      try {
+        if (item.source_buffer) {
+          const w = Math.max(1, Math.round(item.geometry.coordinates[2] - item.geometry.coordinates[0]));
+          const h = Math.max(1, Math.round(item.geometry.coordinates[3] - item.geometry.coordinates[1]));
+          const l = Math.max(0, Math.round(item.geometry.coordinates[0]));
+          const t = Math.max(0, Math.round(item.geometry.coordinates[1]));
+          cropBuffer = await sharp(item.source_buffer)
+            .extract({ left: l, top: t, width: w, height: h })
+            .resize(236, 236, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 1 } })
+            .png()
+            .toBuffer();
+        }
+      } catch (err) {
+        // Fallback placeholder if crop failed
+      }
+
+      if (cropBuffer) {
+        composites.push({ input: cropBuffer, left: cellLeft + 10, top: cellTop + 10 });
+      }
+
+      // Token label badge
+      const tokenBadgeSvg = Buffer.from(
+        `<svg width="68" height="20"><rect width="68" height="20" rx="3" fill="#0f172a"/><text x="6" y="14" fill="#f8fafc" font-size="11" font-weight="bold" font-family="sans-serif">${token}</text></svg>`
+      );
+      composites.push({ input: tokenBadgeSvg, left: cellLeft + 6, top: cellTop + 6 });
+
+      manifestReferences.push({
+        reference_id: item.reference_id || token,
+        token: token,
+        contact_sheet: sheetId,
+        cell: `r${r}c${c}`,
+        legend_entry: item.legend_entry || null,
+        label: item.label || 'Reference example',
+        role: item.role || 'approved_example',
+        source_sheet_id: item.source_sheet_id
+      });
+    }
+
+    // Grid divider lines
+    const gridSvg = Buffer.from(
+      `<svg width="1024" height="1024">
+        <line x1="256" y1="0" x2="256" y2="1024" stroke="#cbd5e1" stroke-width="1"/>
+        <line x1="512" y1="0" x2="512" y2="1024" stroke="#cbd5e1" stroke-width="1"/>
+        <line x1="768" y1="0" x2="768" y2="1024" stroke="#cbd5e1" stroke-width="1"/>
+        <line x1="0" y1="256" x2="1024" y2="256" stroke="#cbd5e1" stroke-width="1"/>
+        <line x1="0" y1="512" x2="1024" y2="512" stroke="#cbd5e1" stroke-width="1"/>
+        <line x1="0" y1="768" x2="1024" y2="768" stroke="#cbd5e1" stroke-width="1"/>
+      </svg>`
+    );
+    composites.push({ input: gridSvg, left: 0, top: 0 });
+
+    const contactBuffer = await sharp({
+      create: { width: 1024, height: 1024, channels: 3, background: { r: 255, g: 255, b: 255 } }
+    }).composite(composites).png().toBuffer();
+
+    contactSheets.push({
+      id: sheetId,
+      mime_type: 'image/png',
+      data: contactBuffer.toString('base64')
+    });
+  }
+
+  return { contactSheets, manifestReferences };
+}
+
+// Respect provider cooldowns; return long cooldowns to the caller instead of retrying early.
+function retryDelayMs(response, attempt) {
+  const backoff = 10000 * (2 ** (attempt - 1)) + Math.floor(Math.random() * 1000);
+  const header = response?.headers?.get('retry-after');
+  if (!header) return backoff;
+  const seconds = Number(header);
+  const providerDelay = Number.isFinite(seconds)
+    ? Math.max(0, seconds * 1000)
+    : Math.max(0, Date.parse(header) - Date.now());
+  return Number.isFinite(providerDelay) ? Math.max(backoff, providerDelay) : backoff;
+}
+
+// Fetch with timeout and two bounded retries (roughly 10s and 20s, plus jitter).
+async function fetchWithRetry(url, options, maxRetries = 2, timeoutMs = 60000) {
+  let attempt = 0;
+  while (attempt <= maxRetries) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
+
+      if (res.ok) {
+        return res;
+      }
+
+      // Retry transient failures only. Client/authentication errors return immediately.
+      if ([408, 429, 500, 502, 503, 504].includes(res.status) && attempt < maxRetries) {
+        attempt++;
+        const waitMs = retryDelayMs(res, attempt);
+        if (waitMs > 120000) return res;
+        // Release the discarded response before opening the next request.
+        if (res.body) await res.body.cancel().catch(() => {});
+        console.warn(`[Auto-Annotate] Transient ${res.status}, retrying attempt ${attempt}/${maxRetries} after ${waitMs}ms...`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+
+      return res;
+    } catch (err) {
+      clearTimeout(timer);
+      if (attempt < maxRetries) {
+        attempt++;
+        const waitMs = retryDelayMs(null, attempt);
+        console.warn(`[Auto-Annotate] Network request failed, retrying attempt ${attempt}/${maxRetries} after ${waitMs}ms...`);
+        await new Promise(r => setTimeout(r, waitMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+// Main auto-annotation execution function
+async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {}, sheetMeta = null) {
+  const ref = loadReferences();
+  if (!ref) {
+    throw new Error('Approved reference data not loaded. Run prepare-approved-data.cjs first.');
+  }
+
+  let sheet = ref.sheets.find(s => s.id === sheetId);
+  if (!sheet && sheetMeta) {
+    sheet = sheetMeta;
+  }
+  if (!sheet) {
+    throw new Error(`Sheet ${sheetId} not found in workspace.`);
+  }
+
+  // Multi-role rule: Legend reference sheets are not annotated
+  if (sheet.sheet_type === 'legend_reference') {
+    return {
+      sheet_id: sheetId,
+      status: 'references_only',
+      message: 'Legend references received; no floor-plan image was supplied.',
+      annotations: [],
+      count: 0
+    };
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  // Handle fixture / demo mode
+  if (options.fixture) {
+    const verifiedPayloadPath = path.join(__dirname, 'output_payload.json');
+    let fallbackMap = new Map();
+    if (fs.existsSync(verifiedPayloadPath)) {
+      try {
+        const vData = JSON.parse(fs.readFileSync(verifiedPayloadPath, 'utf8'));
+        for (const ann of vData.annotations || []) {
+          if (!fallbackMap.has(ann.sheet_id)) fallbackMap.set(ann.sheet_id, []);
+          fallbackMap.get(ann.sheet_id).push(ann);
+        }
+      } catch {}
+    }
+    const fixtureProposals = fallbackMap.get(sheetId) || [];
+    const validAnnotations = fixtureProposals.filter(p => {
+      const [ymin, xmin, ymax, xmax] = p.box_2d || [];
+      return ymin < ymax && xmin < xmax;
+    }).map((p, idx) => {
+      const sheetPixels = convertBoxToSheetPixels(p.box_2d, sheet.width, sheet.height);
+      return {
+        id: `${sheetId}-ai-${idx + 1}`,
+        layer: p.layer || 'symbols',
+        label: p.label || 'Candidate device',
+        geometry: { type: 'bbox', coordinates: sheetPixels },
+        legend_entry: p.legend_entry || null,
+        review_state: 'needs_review',
+        method: 'auto_annotation_gemini',
+        class_state: p.legend_entry ? 'proposed_legend_mapping' : 'unresolved',
+        note: p.evidence || 'Approved fixture proposal',
+        created_at: new Date().toISOString()
+      };
+    });
+
+    return {
+      sheet_id: sheetId,
+      status: 'success',
+      mode: 'fixture',
+      count: validAnnotations.length,
+      annotations: validAnnotations
+    };
+  }
+
+  // Without API key and without explicit fixture mode: truthful return
+  if (!apiKey) {
+    return {
+      sheet_id: sheetId,
+      status: 'api_key_missing',
+      message: 'GEMINI_API_KEY is not configured on the server.',
+      count: 0,
+      annotations: []
+    };
+  }
+
+  // Read the sheet target image
+  let imageBuffer = null;
+  if (sheet.image && sheet.image.startsWith('data:')) {
+    const match = sheet.image.match(/^data:([^;]+);base64,(.*)$/);
+    if (match) {
+      imageBuffer = Buffer.from(match[2], 'base64');
+    } else {
+      throw new Error('Invalid image data format.');
+    }
+  } else {
+    const imagePath = path.join(__dirname, sheet.image);
+    if (!fs.existsSync(imagePath)) {
+      throw new Error(`Sheet image file not found: ${imagePath}`);
+    }
+    imageBuffer = fs.readFileSync(imagePath);
+  }
+
+  // Gather reference samples: associated legends + drawing embedded legends
+  const candidateRefItems = [];
+  const associatedLegendIds = new Set(sheet.associated_legend_ids || []);
+
+  for (const s of ref.sheets) {
+    if (associatedLegendIds.has(s.id) || s.id === sheet.id) {
+      const srcPath = path.join(__dirname, s.image);
+      let sBuf = null;
+      if (fs.existsSync(srcPath)) {
+        try { sBuf = fs.readFileSync(srcPath); } catch {}
+      }
+      for (const ann of s.annotations || []) {
+        if (ann.layer === 'legend' && ann.geometry && ann.geometry.type === 'bbox') {
+          candidateRefItems.push({
+            reference_id: ann.legend_entry || `ref-${s.id}-${ann.id}`,
+            legend_entry: ann.legend_entry || null,
+            label: ann.label,
+            source_sheet_id: s.id,
+            geometry: ann.geometry,
+            role: 'legend_definition',
+            source_buffer: sBuf
+          });
+        }
+      }
+    }
+  }
+
+  // Also include general catalog items if capacity remains
+  if (candidateRefItems.length < 32 && ref.legend_catalog) {
+    for (const cat of ref.legend_catalog) {
+      if (candidateRefItems.some(c => c.legend_entry === cat.legend_entry)) continue;
+      const ex = cat.examples && cat.examples[0];
+      if (ex && ex.geometry) {
+        const srcPath = path.join(__dirname, `images/${ex.source_sheet_id}.jpg`);
+        let sBuf = null;
+        if (fs.existsSync(srcPath)) {
+          try { sBuf = fs.readFileSync(srcPath); } catch {}
+        }
+        candidateRefItems.push({
+          reference_id: cat.legend_entry,
+          legend_entry: cat.legend_entry,
+          label: cat.label,
+          source_sheet_id: ex.source_sheet_id,
+          geometry: ex.geometry,
+          role: 'approved_example',
+          source_buffer: sBuf
+        });
+        if (candidateRefItems.length >= 48) break;
+      }
+    }
+  }
+
+  // Build contact sheets using Sharp (max 4 sheets, max 16 items each)
+  const { contactSheets, manifestReferences } = await buildContactSheets(candidateRefItems);
+
+  // Generate overlapping tiles (1024x1024 with 200px overlap)
+  const tiles = generateOverlappingTiles(sheet.width, sheet.height, 1024, 200);
+
+  // Excluded regions (e.g. embedded legend panels, title blocks)
+  const excludedRegions = (currentAnnotations || [])
+    .filter(a => (a.layer === 'regions' || (a.layer === 'legend' && a.geometry)) && a.review_state !== 'deleted')
+    .map(a => a.geometry.coordinates);
+
+  // Deleted symbols for suppression
+  const deletedSymbols = (currentAnnotations || [])
+    .filter(a => a.review_state === 'deleted' && a.geometry && a.geometry.type === 'bbox' && a.layer === 'symbols')
+    .map(a => a.geometry.coordinates);
+
+  // Existing active symbols
+  const existingSymbols = (currentAnnotations || [])
+    .filter(a => a.review_state !== 'deleted' && a.geometry && a.geometry.type === 'bbox' && a.layer === 'symbols')
+    .map(a => a.geometry.coordinates);
+
+  const rawTileProposals = [];
+  const systemInstruction = loadSystemPrompt();
+
+  // Structured response schema
+  const responseSchema = {
+    type: 'OBJECT',
+    properties: {
+      status: { type: 'STRING', enum: ['ok', 'references_only', 'input_error'] },
+      request_id: { type: 'STRING' },
+      sheet_id: { type: 'STRING' },
+      tile_id: { type: 'STRING' },
+      message: { type: 'STRING' },
+      annotations: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            reference_id: { type: 'STRING', nullable: true },
+            legend_entry: { type: 'STRING', nullable: true },
+            label: { type: 'STRING' },
+            layer: { type: 'STRING', enum: ['symbols', 'unresolved'] },
+            box_2d: {
+              type: 'ARRAY',
+              items: { type: 'INTEGER' },
+              description: '[ymin, xmin, ymax, xmax] in 0-1000 scale'
+            },
+            match_quality: { type: 'STRING', enum: ['strong', 'tentative', 'unresolved'] },
+            evidence: { type: 'STRING' },
+            truncated: { type: 'BOOLEAN' }
+          },
+          required: ['reference_id', 'legend_entry', 'label', 'layer', 'box_2d', 'match_quality', 'evidence', 'truncated']
+        }
+      }
+    },
+    required: ['status', 'request_id', 'sheet_id', 'tile_id', 'message', 'annotations']
+  };
+
+  const modelName = 'gemini-3.8-flash';
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent`;
+
+  for (const tile of tiles) {
+    // Crop target tile buffer
+    const tileBuffer = await sharp(imageBuffer)
+      .extract({ left: tile.x0, top: tile.y0, width: tile.w, height: tile.h })
+      .png()
+      .toBuffer();
+
+    const targetBase64 = tileBuffer.toString('base64');
+    const requestId = `${sheetId}-${tile.id}-${Date.now()}`;
+
+    // Convert exclusions, deletions, and existing symbols into tile-relative 0-1000 coordinates
+    const toTileCoords = (coords) => {
+      const [xmin, ymin, xmax, ymax] = coords;
+      if (xmax < tile.x0 || xmin > tile.x1 || ymax < tile.y0 || ymin > tile.y1) return null;
+      const tXmin = Math.max(0, Math.min(1000, Math.round(((xmin - tile.x0) * 1000) / tile.w)));
+      const tYmin = Math.max(0, Math.min(1000, Math.round(((ymin - tile.y0) * 1000) / tile.h)));
+      const tXmax = Math.max(0, Math.min(1000, Math.round(((xmax - tile.x0) * 1000) / tile.w)));
+      const tYmax = Math.max(0, Math.min(1000, Math.round(((ymax - tile.y0) * 1000) / tile.h)));
+      if (tXmax <= tXmin || tYmax <= tYmin) return null;
+      return [tYmin, tXmin, tYmax, tXmax];
+    };
+
+    const tileExisting = existingSymbols.map(toTileCoords).filter(Boolean);
+    const tileDeleted = deletedSymbols.map(toTileCoords).filter(Boolean);
+    const tileExcluded = excludedRegions.map(toTileCoords).filter(Boolean);
+
+    const manifest = {
+      request_id: requestId,
+      sheet_id: sheetId,
+      source_sha256: sheet.sha256,
+      sheet_type: sheet.sheet_type || 'plan',
+      target_image_id: 'target-0',
+      tile_id: tile.id,
+      coordinate_system: 'target_image_yxyx_0_1000',
+      images: [
+        { image_id: 'target-0', role: 'target' },
+        ...contactSheets.map(c => ({ image_id: c.id, role: 'references' }))
+      ],
+      references: manifestReferences,
+      existing_symbols: tileExisting,
+      deleted_symbols: tileDeleted,
+      excluded_regions: tileExcluded
+    };
+
+    // Prepare contents: manifest text + target image + reference contact sheets (at most 5 images)
+    const parts = [
+      { text: `JSON Manifest:\n${JSON.stringify(manifest, null, 2)}` },
+      { inline_data: { mime_type: 'image/png', data: targetBase64 } }
+    ];
+
+    for (const cs of contactSheets) {
+      parts.push({ inline_data: { mime_type: cs.mime_type, data: cs.data } });
+    }
+
+    const requestBody = {
+      contents: [{ parts }],
+      system_instruction: { parts: [{ text: systemInstruction }] },
+      generationConfig: {
+        response_mime_type: 'application/json',
+        response_schema: responseSchema,
+        temperature: 0.1
+      }
+    };
+
+    const res = await fetchWithRetry(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
+      body: JSON.stringify(requestBody)
+    }, 2, 60000);
+
+    if (!res.ok) {
+      const errText = await res.text();
+      let msg = `API error ${res.status}: ${res.statusText}`;
+      try {
+        const parsed = JSON.parse(errText);
+        msg = parsed.error?.message || msg;
+      } catch {}
+      const retryable = [408, 429, 500, 502, 503, 504].includes(res.status);
+      const error = new Error(retryable
+        ? `Gemini is temporarily busy or unavailable on ${tile.id}. No annotations from this run were added. Please try Auto annotate again later. Provider message: ${msg}`
+        : `Gemini detection failed on ${tile.id}: ${msg}`);
+      error.statusCode = retryable ? 503 : 502;
+      error.code = retryable ? 'gemini_temporarily_unavailable' : 'gemini_request_failed';
+      error.retryAfter = res.headers.get('retry-after');
+      throw error;
+    }
+
+    const data = await res.json();
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!rawText) {
+      throw new Error(`Empty response from Gemini API for ${tile.id}.`);
+    }
+
+    let parsedResponse = null;
+    try {
+      parsedResponse = JSON.parse(rawText);
+    } catch (e) {
+      throw new Error(`Malformed JSON output from Gemini API: ${e.message}`);
+    }
+
+    if (parsedResponse.status === 'references_only') {
+      return {
+        sheet_id: sheetId,
+        status: 'references_only',
+        message: parsedResponse.message || 'References only.',
+        annotations: [],
+        count: 0
+      };
+    }
+
+    for (const ann of parsedResponse.annotations || []) {
+      const [ymin, xmin, ymax, xmax] = ann.box_2d || [];
+      // Coordinate validity check
+      if (typeof ymin !== 'number' || typeof xmin !== 'number' || typeof ymax !== 'number' || typeof xmax !== 'number') continue;
+      if (ymin >= ymax || xmin >= xmax || ymin < 0 || xmin < 0 || ymax > 1000 || xmax > 1000) continue;
+
+      const sheetPixels = convertTileBoxToSheetPixels([ymin, xmin, ymax, xmax], tile);
+      rawTileProposals.push({
+        ...ann,
+        sheet_pixels: sheetPixels,
+        tile_id: tile.id
+      });
+    }
+  }
+
+  // Merge overlapping tile predictions and deduplicate
+  const mergedProposals = [];
+  for (const prop of rawTileProposals) {
+    const b1 = prop.sheet_pixels;
+
+    // Check against excluded regions
+    const insideExcluded = excludedRegions.some(e => {
+      const midX = (b1[0] + b1[2]) / 2;
+      const midY = (b1[1] + b1[3]) / 2;
+      return midX >= e[0] && midX <= e[2] && midY >= e[1] && midY <= e[3];
+    });
+    if (insideExcluded) continue;
+
+    // Check against deleted symbols (never recreate deleted items)
+    const isDeleted = deletedSymbols.some(d => computeIoU(b1, d) > 0.4);
+    if (isDeleted) continue;
+
+    // Check against existing symbol annotations (not OCR or text)
+    const isExisting = existingSymbols.some(e => computeIoU(b1, e) > 0.45);
+    if (isExisting) continue;
+
+    // Self-deduplication against newly merged proposals
+    const duplicateIdx = mergedProposals.findIndex(m => computeIoU(b1, m.sheet_pixels) > 0.45 || computeContainment(b1, m.sheet_pixels) > 0.85);
+    if (duplicateIdx >= 0) {
+      const existing = mergedProposals[duplicateIdx];
+      // Keep complete / non-truncated over truncated
+      if (existing.truncated && !prop.truncated) {
+        mergedProposals[duplicateIdx] = prop;
+      }
+      continue;
+    }
+
+    mergedProposals.push(prop);
+  }
+
+  // Generate final annotation records with unique IDs
+  const finalAnnotations = [];
+  const generatedIds = new Set((currentAnnotations || []).map(a => a.id));
+
+  for (const prop of mergedProposals) {
+    const geometry = { type: 'bbox', coordinates: prop.sheet_pixels };
+    if (!AnnotationCore.validGeometry(geometry, sheet.width, sheet.height)) continue;
+
+    let uid = `${sheetId}-ai-${crypto.randomBytes(3).toString('hex')}`;
+    while (generatedIds.has(uid)) {
+      uid = `${sheetId}-ai-${crypto.randomBytes(3).toString('hex')}`;
+    }
+    generatedIds.add(uid);
+
+    // Lookup legend entry provenance for cross-group compliance
+    let sourceSheet = null;
+    if (prop.legend_entry) {
+      sourceSheet = ref.sheets.find(s => (s.annotations || []).some(a => a.layer === 'legend' && a.legend_entry === prop.legend_entry));
+    }
+    const isAssociated = !sourceSheet || (sheet.associated_legend_ids || []).includes(sourceSheet.id) || sheet.id === sourceSheet.id;
+    const legendScope = isAssociated ? 'group' : 'cross_group';
+    const classState = prop.legend_entry ? (isAssociated ? 'proposed_legend_mapping' : 'cross_group_candidate') : 'unresolved';
+    const legendSource = (!isAssociated && sourceSheet) ? {
+      sheet_id: sourceSheet.id,
+      source_sha256: sourceSheet.sha256,
+      group: sourceSheet.group
+    } : undefined;
+
+    finalAnnotations.push({
+      id: uid,
+      layer: prop.layer || 'symbols',
+      label: prop.label || 'Candidate device',
+      geometry: geometry,
+      legend_entry: prop.legend_entry || null,
+      legend_scope: legendScope,
+      legend_source: legendSource,
+      review_state: 'needs_review',
+      method: 'auto_annotation_gemini',
+      class_state: classState,
+      note: prop.evidence || 'Auto-annotated by Gemini 3.8 visual detection',
+      created_at: new Date().toISOString()
+    });
+  }
+
+  return {
+    sheet_id: sheetId,
+    status: 'success',
+    model: modelName,
+    count: finalAnnotations.length,
+    annotations: finalAnnotations
+  };
+}
+
+module.exports = {
+  runAutoAnnotation,
+  convertBoxToSheetPixels,
+  convertTileBoxToSheetPixels,
+  generateOverlappingTiles,
+  computeIoU,
+  computeContainment,
+  loadReferences,
+  buildContactSheets
+};
