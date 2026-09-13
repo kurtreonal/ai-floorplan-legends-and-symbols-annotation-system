@@ -11,7 +11,8 @@
     "diagnose:groq": "node scripts/diagnose-groq.cjs",
     "diagnose:gemini": "node scripts/diagnose-gemini.cjs",
     "diagnose:images": "node scripts/diagnose-gemini-images.cjs",
-    "export:yolo": "node scripts/export-yolo-dataset.cjs"
+    "export:yolo": "node scripts/export-yolo-dataset.cjs",
+    "test:drawing": "node tests/test-drawing-browser.cjs"
   },
   "keywords": [
     "floor-plan",
