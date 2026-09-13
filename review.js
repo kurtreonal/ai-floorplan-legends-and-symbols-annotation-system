@@ -53,10 +53,20 @@
  function connectedComponent(id){const ids=new Set([id]),queue=[id];while(queue.length){const next=queue.shift(),a=current.annotations.find(x=>x.id===next);for(const otherId of (a?.connections||[])){if(ids.has(otherId))continue;const other=current.annotations.find(x=>x.id===otherId);if(!other||other.review_state==='deleted')continue;ids.add(otherId);queue.push(otherId);}}return [...ids];}
  function disconnectAnnotation(a){const linked=new Set(a.connections||[]);for(const id of linked){const other=current.annotations.find(x=>x.id===id);if(other)other.connections=(other.connections||[]).filter(x=>x!==a.id);}a.connections=[];}
  function linkConnections(a){for(const other of current.annotations){if(other===a||other.review_state==='deleted')continue;const linked=a.connections||[];if(linked.includes(other.id))continue;const hit=connectionAnchors(a).some(p=>connectionAnchors(other).some(q=>Math.hypot(p[0]-q[0],p[1]-q[1])<=connectionTolerance()));if(hit){a.connections=[...(a.connections||[]),other.id];other.connections=[...(other.connections||[]),a.id];}}}
+  function distToSegment(px,py,x1,y1,x2,y2){const dx=x2-x1,dy=y2-y1,l2=dx*dx+dy*dy;if(l2===0)return Math.hypot(px-x1,py-y1);let t=((px-x1)*dx+(py-y1)*dy)/l2;t=Math.max(0,Math.min(1,t));return Math.hypot(px-(x1+t*dx),py-(y1+t*dy));}
+  function distToPolyline(p,coords){if(!coords||coords.length<2)return Infinity;let minD=Infinity;for(let i=0;i<coords.length-1;i++){const d=distToSegment(p[0],p[1],coords[i][0],coords[i][1],coords[i+1][0],coords[i+1][1]);if(d<minD)minD=d;}return minD;}
+  function pointInPolygon(p,vs){if(!vs||vs.length<3)return false;const x=p[0],y=p[1];let inside=false;for(let i=0,j=vs.length-1;i<vs.length;j=i++){const xi=vs[i][0],yi=vs[i][1],xj=vs[j][0],yj=vs[j][1];const intersect=((yi>y)!==(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi)+xi);if(intersect)inside=!inside;}return inside;}
+  function distToPolygonEdges(p,vs){if(!vs||vs.length<2)return Infinity;let minD=Infinity;for(let i=0,j=vs.length-1;i<vs.length;j=i++){const d=distToSegment(p[0],p[1],vs[i][0],vs[i][1],vs[j][0],vs[j][1]);if(d<minD)minD=d;}return minD;}
+  function distToBox(p,coords){if(!coords||coords.length<4)return Infinity;const minX=Math.min(coords[0],coords[2]),maxX=Math.max(coords[0],coords[2]),minY=Math.min(coords[1],coords[3]),maxY=Math.max(coords[1],coords[3]);if(p[0]>=minX&&p[0]<=maxX&&p[1]>=minY&&p[1]<=maxY)return 0;const dx=Math.max(minX-p[0],0,p[0]-maxX),dy=Math.max(minY-p[1],0,p[1]-maxY);return Math.hypot(dx,dy);}
+  function annotationArea(a){const g=a.geometry;if(!g)return 1e9;if(g.type==='polyline')return 0;if(g.type==='bbox'){return Math.max(1,Math.abs(g.coordinates[2]-g.coordinates[0])*Math.abs(g.coordinates[3]-g.coordinates[1]));}if(g.type==='polygon'){const vs=g.coordinates;if(!vs||vs.length<3)return 1e9;let area=0;for(let i=0,j=vs.length-1;i<vs.length;j=i++)area+=(vs[j][0]+vs[i][0])*(vs[j][1]-vs[i][1]);return Math.max(1,Math.abs(area/2));}return 1e9;}
+  function hitTestAnnotation(a,p,tol){const g=a.geometry;if(!g)return{hit:false,dist:Infinity};if(g.type==='bbox'){const d=distToBox(p,g.coordinates);return{hit:d<=tol,dist:d};}if(g.type==='polygon'){if(pointInPolygon(p,g.coordinates))return{hit:true,dist:0};const d=distToPolygonEdges(p,g.coordinates);return{hit:d<=tol,dist:d};}if(g.type==='polyline'){const d=distToPolyline(p,g.coordinates);return{hit:d<=tol,dist:d};}return{hit:false,dist:Infinity};}
+  function annotationsAtPoint(p){if(!p||!current||$('show-overlays')?.checked===false)return[];const scale=stage?.scaleX()||1,tol=Math.max(8,Math.min(48,16/scale)),hits=[];for(const a of current.annotations){if(!enabled.has(a.layer)||a.review_state==='deleted')continue;const res=hitTestAnnotation(a,p,tol);if(res.hit)hits.push({annotation:a,dist:res.dist,area:annotationArea(a)});}hits.sort((a,b)=>{if(Math.abs(a.area-b.area)>1)return a.area-b.area;return a.dist-b.dist;});return hits.map(h=>h.annotation);}
+  let lastSelectionClickTime=0;
+  function handleSelectionClick(p,opts={}){const now=Date.now();if(now-lastSelectionClickTime<40)return;lastSelectionClickTime=now;if($('tool').value!=='pan'||!current)return;let candidates=p?annotationsAtPoint(p):[];if(opts.clickedId&&!candidates.some(c=>c.id===opts.clickedId)){const direct=current.annotations.find(a=>a.id===opts.clickedId&&enabled.has(a.layer)&&a.review_state!=='deleted');if(direct)candidates.unshift(direct);}if(!candidates.length){if(selected||multi.size){multi.clear();selected=null;describeSelection();renderMarks();renderList();status('Selection cleared.');}return;}if(opts.shift){choose(candidates[0].id,{shift:true});return;}if(candidates.length===1){choose(candidates[0].id);return;}const currentIndex=candidates.findIndex(c=>c.id===selected);let targetIndex=0;if(currentIndex!==-1){targetIndex=(currentIndex+1)%candidates.length;}const target=candidates[targetIndex];choose(target.id);const label=target.label||target.id.split('-').pop();status(`Selected ${targetIndex+1} of ${candidates.length} overlapping marks: ${label} (click again to cycle).`);}
   function nodeFor(a,color){
     const g=a.geometry,sel=a.id===selected||multi.has(a.id);
     const isAutoPending=(a.method==='auto_annotation_gemini'||(a.id&&a.id.includes('-ai-')) )&&a.review_state==='needs_review';
-    const common={stroke:color,strokeWidth:sel?6:4,dash:isAutoPending?[8,4]:undefined,fill:undefined,opacity:1,hitStrokeWidth:28,name:'annotation',shadowEnabled:sel,shadowColor:'#1683ff',shadowBlur:sel?12:0,shadowOpacity:sel?.9:0};let n;if(g.type==='bbox'){const[x,y,r,b]=g.coordinates;n=new Konva.Rect({...common,x,y,width:r-x,height:b-y});}else n=new Konva.Line({...common,points:g.coordinates.flat(),closed:g.type==='polygon'});n.draggable($('tool').value==='pan');n.setAttr('annotationId',a.id);n.on('mousedown touchstart',e=>{if(e.evt?.button===2){n.stopDrag();e.cancelBubble=true;}});n.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;choose(a.id,{shift:e.evt.shiftKey});});n.on('dragstart',e=>{if(e.evt?.button===2){n.stopDrag();return;}checkpoint();const ids=(a.geometry.type==='bbox'||a.layer==='geometry')?connectedComponent(a.id):[a.id],base={},peerOrigins={};for(const id of ids){const item=current.annotations.find(x=>x.id===id);if(item)base[id]=C.clone(item.geometry);const peerNode=id===a.id?n:marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);if(peerNode)peerOrigins[id]=peerNode.position();}n.setAttr('dragGroup',{ids,base,peerOrigins,origin:n.position()});});n.on('dragmove',()=>{const state=n.getAttr('dragGroup');if(!state)return;const pos=n.position(),dx=pos.x-state.origin.x,dy=pos.y-state.origin.y;for(const id of state.ids){const item=current.annotations.find(x=>x.id===id);if(!item)continue;const g2=C.translate(state.base[id],dx,dy,current.width,current.height);if(!C.validGeometry(g2,current.width,current.height))continue;item.geometry=g2;const peer=marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);const peerOrigin=state.peerOrigins[id];if(peer&&peer!==n&&peerOrigin)peer.position({x:peerOrigin.x+dx,y:peerOrigin.y+dy});}marksLayer.batchDraw();});n.on('dragend',()=>{const state=n.getAttr('dragGroup');for(const id of state?.ids||[a.id]){const item=current.annotations.find(x=>x.id===id);if(item)preserve(item);}if((state?.ids?.length||1)<=1&&a.geometry.type!=='bbox'&&a.layer!=='geometry')disconnectAnnotation(a);n.setAttr('dragGroup',null);persist();renderMarks();status(state?.ids?.length>1?'Connected annotations moved together.':'Shape moved.');});n.on('contextmenu',e=>{e.evt.preventDefault();e.cancelBubble=true;n.stopDrag();openMenu(e.evt.clientX,e.evt.clientY,a.id);});return n;}
+    const common={stroke:color,strokeWidth:sel?6:4,dash:isAutoPending?[8,4]:undefined,fill:undefined,opacity:1,hitStrokeWidth:28,name:'annotation',shadowEnabled:sel,shadowColor:'#1683ff',shadowBlur:sel?12:0,shadowOpacity:sel?.9:0};let n;if(g.type==='bbox'){const[x,y,r,b]=g.coordinates;n=new Konva.Rect({...common,x,y,width:r-x,height:b-y});}else n=new Konva.Line({...common,points:g.coordinates.flat(),closed:g.type==='polygon'});n.draggable($('tool').value==='pan');n.setAttr('annotationId',a.id);n.on('mousedown touchstart',e=>{if(e.evt?.button===2){n.stopDrag();e.cancelBubble=true;}});n.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;handleSelectionClick(point(e),{shift:e.evt?.shiftKey,clickedId:a.id});});n.on('dragstart',e=>{if(e.evt?.button===2){n.stopDrag();return;}checkpoint();const ids=(a.geometry.type==='bbox'||a.layer==='geometry')?connectedComponent(a.id):[a.id],base={},peerOrigins={};for(const id of ids){const item=current.annotations.find(x=>x.id===id);if(item)base[id]=C.clone(item.geometry);const peerNode=id===a.id?n:marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);if(peerNode)peerOrigins[id]=peerNode.position();}n.setAttr('dragGroup',{ids,base,peerOrigins,origin:n.position()});});n.on('dragmove',()=>{const state=n.getAttr('dragGroup');if(!state)return;const pos=n.position(),dx=pos.x-state.origin.x,dy=pos.y-state.origin.y;for(const id of state.ids){const item=current.annotations.find(x=>x.id===id);if(!item)continue;const g2=C.translate(state.base[id],dx,dy,current.width,current.height);if(!C.validGeometry(g2,current.width,current.height))continue;item.geometry=g2;const peer=marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);const peerOrigin=state.peerOrigins[id];if(peer&&peer!==n&&peerOrigin)peer.position({x:peerOrigin.x+dx,y:peerOrigin.y+dy});}marksLayer.batchDraw();});n.on('dragend',()=>{const state=n.getAttr('dragGroup');for(const id of state?.ids||[a.id]){const item=current.annotations.find(x=>x.id===id);if(item)preserve(item);}if((state?.ids?.length||1)<=1&&a.geometry.type!=='bbox'&&a.layer!=='geometry')disconnectAnnotation(a);n.setAttr('dragGroup',null);persist();renderMarks();status(state?.ids?.length>1?'Connected annotations moved together.':'Shape moved.');});n.on('contextmenu',e=>{e.evt.preventDefault();e.cancelBubble=true;n.stopDrag();openMenu(e.evt.clientX,e.evt.clientY,a.id);});return n;}
   function renderMarks(){
     if(!marksLayer)return;
     marksLayer.destroyChildren();
@@ -68,7 +78,9 @@
       marksLayer.add(nodeFor(a,color));
       const [x,y]=bounds(a);
       const label=(a.label||a.layer).length>28?(a.label||a.layer).slice(0,27)+'…':(a.label||a.layer);
-      marksLayer.add(new Konva.Label({x,y:y-24,rotation:-rotation,opacity:a.id===selected||multi.has(a.id)?1:.92,listening:false,children:[new Konva.Tag({fill:'#07111d',stroke:color,strokeWidth:2,cornerRadius:3,padding:4}),new Konva.Text({text:label,fontFamily:'Arial',fontSize:12,fontStyle:'bold',fill:'#ffffff',padding:4})]}));
+      const lbl=new Konva.Label({x,y:y-24,rotation:-rotation,opacity:a.id===selected||multi.has(a.id)?1:.92,listening:false,children:[new Konva.Tag({fill:'#07111d',stroke:color,strokeWidth:2,cornerRadius:3,padding:4}),new Konva.Text({text:label,fontFamily:'Arial',fontSize:12,fontStyle:'bold',fill:'#ffffff',padding:4})]});
+      lbl.setAttr('annotationId',a.id);
+      marksLayer.add(lbl);
       if(a.layer==='symbols'&&a.geometry.type==='bbox'){
         const [bx,by,br,bb]=a.geometry.coordinates,cx=(bx+br)/2,cy=(by+bb)/2;
         const isSel=a.id===selected||multi.has(a.id);
@@ -77,7 +89,7 @@
         marksLayer.add(new Konva.Circle({x:cx,y:cy,radius:isSel?10:7,stroke:ringColor,strokeWidth:isSel?3:2,dash:a.review_state==='user_reviewed'?undefined:[3,2],listening:false}));
         const pin=new Konva.Circle({x:cx,y:cy,radius:isSel?4.5:3,fill:color,stroke:'#07111d',strokeWidth:1.5,name:'annotation-pin'});
         pin.setAttr('annotationId',a.id);
-        pin.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;choose(a.id,{shift:e.evt.shiftKey});});
+        pin.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;handleSelectionClick(point(e),{shift:e.evt?.shiftKey,clickedId:a.id});});
         marksLayer.add(pin);
       }
       if(($('tool').value==='polyline'||$('tool').value==='polygon'||a.id===selected||multi.has(a.id))&&a.geometry.type!=='bbox'){
@@ -88,6 +100,15 @@
           marksLayer.add(anchor);
         }
       }
+    }
+    const selIds=selected?[selected]:[...multi];
+    for(const id of selIds){
+      const selNode=marksLayer.findOne(n=>n.name()==='annotation'&&n.getAttr('annotationId')===id);
+      if(selNode)selNode.moveToTop();
+      const selLbl=marksLayer.findOne(n=>n.className==='Label'&&n.getAttr('annotationId')===id);
+      if(selLbl)selLbl.moveToTop();
+      const selPin=marksLayer.findOne(n=>n.name()==='annotation-pin'&&n.getAttr('annotationId')===id);
+      if(selPin)selPin.moveToTop();
     }
     if(selected){
       const a=selectedAnnotation(),g=a?.geometry;
@@ -401,9 +422,12 @@
    if(tool==='pan'&&!e.target.hasName('annotation')&&!e.target.hasName('handle')&&!e.target.hasName('connection-anchor'))
     drag={x:e.evt.clientX,y:e.evt.clientY,v:[...view]};
   });
+  let didPanRecently=false;
   stage.on('mousemove touchmove',e=>{
    if(drag){
-    const rad=rotation*Math.PI/180,scale=stage.scaleX()||1,cos=Math.cos(-rad),sin=Math.sin(-rad),dxs=e.evt.clientX-drag.x,dys=e.evt.clientY-drag.y,wdx=(dxs*cos-dys*sin)/scale,wdy=(dxs*sin+dys*cos)/scale;
+    const dxs=e.evt.clientX-drag.x,dys=e.evt.clientY-drag.y;
+    if(Math.hypot(dxs,dys)>4)drag.moved=true;
+    const rad=rotation*Math.PI/180,scale=stage.scaleX()||1,cos=Math.cos(-rad),sin=Math.sin(-rad),wdx=(dxs*cos-dys*sin)/scale,wdy=(dxs*sin+dys*cos)/scale;
     view=[drag.v[0]-wdx,drag.v[1]-wdy,drag.v[2],drag.v[3]];
     applyView();
     return;
@@ -424,16 +448,14 @@
   });
   stage.on('mouseup touchend',e=>{
    if(drag){
-    const dx=(e.evt?.clientX??drag.x)-drag.x,dy=(e.evt?.clientY??drag.y)-drag.y,moved=Math.hypot(dx,dy)>4;
+    const dx=(e.evt?.clientX??drag.x)-drag.x,dy=(e.evt?.clientY??drag.y)-drag.y,moved=drag.moved||Math.hypot(dx,dy)>4;
     drag=null;
-    if(!moved&&(selected||multi.size)){
-     multi.clear();
-     selected=null;
-     describeSelection();
-     renderMarks();
-     renderList();
-     status('Selection cleared.');
+    if(moved){
+     didPanRecently=true;
+     setTimeout(()=>{didPanRecently=false;},300);
+     return;
     }
+    handleSelectionClick(point(e),{shift:e.evt?.shiftKey});
     return;
    }
    if(!gesture)return;
@@ -456,6 +478,12 @@
      }
     }
    }
+  });
+  stage.on('click tap',e=>{
+   if($('tool').value!=='pan')return;
+   if(didPanRecently)return;
+   if(e.target.hasName('handle')||e.target.hasName('connection-anchor'))return;
+   handleSelectionClick(point(e),{shift:e.evt?.shiftKey});
   });
   stage.on('dblclick dbltap',e=>{
    const tool=$('tool').value;
@@ -748,7 +776,7 @@
   function toggleHelp(force){const overlay=$('help-overlay');if(!overlay)return;overlay.hidden=force===undefined?!overlay.hidden:!force;}
   function restoreReview(file){return file.text().then(text=>{let out;try{out=JSON.parse(text);}catch{throw Error('The selected file is not valid JSON.');}if(!out||out.schema!=='ved-editable-review-v2'||!Array.isArray(out.sheets))throw Error('Choose a VED review export JSON file.');if(!window.confirm('Importing this review will overwrite the current annotations and notes. Continue?'))return;const upgraded=C.upgradeReview(out,baseline);for(const sheet of upgraded.sheets){const target=D.sheets.find(s=>s.id===sheet.id);if(target)target.annotations=C.clone(sheet.annotations);}for(const key of Object.keys(decisions))delete decisions[key];Object.assign(decisions,upgraded.decisions||{});for(const key of Object.keys(legendColors))delete legendColors[key];Object.assign(legendColors,upgraded.legend_colors||{});load();populateLegendDropdowns();renderCoverage();persist();status('Review imported. Existing annotations and notes were replaced by the imported review.');}).catch(error=>status('Review import failed: '+error.message));}
   function removeSheet(id){const index=D.sheets.findIndex(sheet=>sheet.id===id);if(index<0)return false;const sheet=D.sheets[index];if(!sheet.id.startsWith('imported-')){status('Only imported floor plans can be removed.');return false;}if(!window.confirm('Delete this imported floor plan and all of its annotations?'))return false;D.sheets.splice(index,1);const baselineIndex=baseline.sheets.findIndex(item=>item.id===id);if(baselineIndex>=0)baseline.sheets.splice(baselineIndex,1);D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;const next=D.sheets[0];if(!next)return false;$('group').value=String(next.group);groupChanged();renderCoverage();status('Imported floor plan deleted.');return true;}
-  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
+  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
   window.updateAnnotationList=updateAnnotationList;
   window.selectAll=selectAll;
   window.populateLegendDropdowns=populateLegendDropdowns;
