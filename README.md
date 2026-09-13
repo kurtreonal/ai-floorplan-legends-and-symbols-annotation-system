@@ -23,9 +23,11 @@
 - [Environment Configuration](#environment-configuration)
 - [Usage Workflow and Steps](#usage-workflow-and-steps)
 - [Collaboration and Review Merging](#collaboration-and-review-merging)
+- [Exporting Data for AI Training (YOLO Format)](#exporting-data-for-ai-training-yolo-format)
 - [Project Structure](#project-structure)
 - [Annotation Limitations](#annotation-limitations)
 - [Verification and Testing](#verification-and-testing)
+- [Troubleshooting](#troubleshooting)
 - [Acknowledgements](#acknowledgements)
 
 ---
@@ -201,6 +203,7 @@ Install `sharp` for server-side tile generation and image packaging:
 ```powershell
 npm install
 ```
+*(Note for Windows PowerShell: If you receive a script execution error regarding `npm.ps1`, use `npm.cmd` instead, such as `npm.cmd install`, or run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` to permit signed scripts).*
 
 ### 3. Install Python Dependencies
 Install Ultralytics and PyTorch for local YOLO execution:
@@ -266,6 +269,7 @@ Groq API Key configured: true
 Local YOLO configured: true (models/ved-symbols.pt)
 Model Hopping: ENABLED
 ```
+*(Note: If you receive `Error: listen EADDRINUSE: address already in use 127.0.0.1:3000`, the server is already active in the background. You can navigate directly to the workspace in your browser, or stop the existing instance using `Stop-Process -Id (Get-NetTCPConnection -LocalPort 3000).OwningProcess -Force` and re-run `npm start`).*
 
 ### Step 3: Open the Workspace
 Open your web browser and navigate to:
@@ -314,6 +318,79 @@ node scripts/merge-reviews.cjs data/starting-progress.json review-annotator-a.js
 The script performs three-way conflict detection:
 - Safe additions and non-conflicting edits from each reviewer are automatically combined.
 - Any conflicting edits (e.g., two annotators modifying the same box geometry or classification differently) are logged to an adjacent conflict report file for manual inspection.
+
+---
+
+## Exporting Data for AI Training (YOLO Format)
+
+To facilitate future AI training and model fine-tuning without manual coordinate conversion, the system can export the verified review data directly into standard Ultralytics YOLO format.
+
+### What Is Saved in the Export
+
+When you export for AI training, the system creates the `training_dataset/` directory containing:
+
+- **`images/`**: High-resolution drawing images for each annotated sheet (e.g., `sheet-01.jpg`, `sheet-45.jpg`).
+- **`labels/`**: Normalized YOLO text files (`.txt`) with the exact same base name as the image (e.g., `sheet-45.txt`).
+  Each line corresponds to one bounding box:
+  ```
+  <class_id> <x_center> <y_center> <width> <height>
+  ```
+  All coordinates are normalized floating-point numbers between `0.0` and `1.0`.
+- **`classes.txt`**: Plaintext list mapping class IDs (line number = class ID) to human-readable symbol class names.
+- **`dataset.yaml`**: Pre-configured Ultralytics YOLO dataset descriptor:
+  ```yaml
+  path: ./training_dataset
+  train: images
+  val: images
+  nc: 993
+  names:
+    0: "100 mm LED recessed downlight"
+    1: "..."
+  ```
+- **`review_export.json`**: Complete structured JSON backup of all annotations, geometry, layers, and reviewer notes.
+- **`export_summary.json`**: Detailed summary report with counts of sheets, total bounding boxes, and symbol frequency per class.
+
+---
+
+### How to Export the Training Dataset
+
+#### Option 1: From the Web UI
+1. Open the review interface at `http://127.0.0.1:3000/review.html`.
+2. Perform your reviews, additions, or corrections.
+3. In the top header actions bar, click **Save training dataset**.
+4. The server compiles the current review state and writes the images, `.txt` labels, and `dataset.yaml` directly into `training_dataset/`.
+
+#### Option 2: From the Command Line
+Run the exporter script directly from your terminal:
+```powershell
+npm run export:yolo
+```
+Or specify custom input JSON and output directories:
+```powershell
+node scripts/export-yolo-dataset.cjs data/labeled-review.json training_dataset
+```
+
+#### Option 3: Via REST API
+Send an HTTP POST request to the local server:
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:3000/api/export-training-data" -Method POST -ContentType "application/json" -Body "{}"
+```
+
+---
+
+### How to Train Ultralytics YOLO with the Exported Data
+
+Once your dataset is exported to `training_dataset/`, run the training process with Ultralytics YOLO:
+
+```powershell
+# Train YOLO on the exported floor plan dataset
+yolo detect train data=training_dataset/dataset.yaml model=yolo11n.pt epochs=100 imgsz=1024 batch=4
+```
+
+When training finishes:
+1. Locate the best model weights: `runs/detect/train/weights/best.pt`.
+2. Copy `best.pt` into `models/ved-symbols.pt`.
+3. Restart the server (`npm start`). The system will automatically utilize your newly trained model as its primary local detector.
 
 ---
 
@@ -441,6 +518,84 @@ npm run test:qwen
 - **Test 6**: Validates explicit fixture generation mode across sheets 45, 46, and 49.
 - **Test 7**: Tests contact sheet packaging under the strict 5-image ceiling limit.
 - **Test 8**: Tests IoU (Intersection over Union) and containment suppression logic for duplicate bounding boxes.
+
+---
+
+## Troubleshooting
+
+### 1. PowerShell Script Execution Error (`npm.ps1 cannot be loaded`)
+**Symptom**:
+```
+npm : File ...\npm.ps1 cannot be loaded because running scripts is disabled on this system.
+    + CategoryInfo          : SecurityError: (:) [], PSSecurityException
+    + FullyQualifiedErrorId : UnauthorizedAccess
+```
+**Cause**: Windows PowerShell enforces a restrictive execution policy by default that blocks PowerShell scripts (`.ps1`).
+
+**Solutions**:
+- **Option A (Recommended Permanent Fix)**: Set execution policy to `RemoteSigned` for your current user:
+  ```powershell
+  Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+  ```
+  Type `Y` to confirm when prompted. Standard `npm` commands will then work normally.
+- **Option B (Temporary Session Fix)**: Bypass execution policy for the current terminal window only:
+  ```powershell
+  Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+  ```
+- **Option C (No Permissions Needed)**: Invoke Windows batch commands (`npm.cmd`) or call Node directly:
+  ```powershell
+  npm.cmd start
+  npm.cmd run diagnose:groq
+  node scripts/diagnose-groq.cjs
+  ```
+
+---
+
+### 2. Port Collision (`Error: listen EADDRINUSE: address already in use 127.0.0.1:3000`)
+**Symptom**:
+```
+Error: listen EADDRINUSE: address already in use 127.0.0.1:3000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+```
+**Cause**: An existing instance of `node server.cjs` or another process is already listening on port `3000`.
+
+**Solutions**:
+- **Check Server Status**: Query if the existing server is already online:
+  ```powershell
+  node -e "fetch('http://127.0.0.1:3000/api/status').then(r=>r.json()).then(console.log).catch(console.error)"
+  ```
+  If it responds with `{ status: 'online' }`, open your browser directly to `http://127.0.0.1:3000/review.html`.
+- **Terminate Existing Process**: Find and kill the process currently holding port 3000:
+  ```powershell
+  Stop-Process -Id (Get-NetTCPConnection -LocalPort 3000).OwningProcess -Force
+  npm start
+  ```
+- **Change Default Port**: Configure a different port in `.env` (e.g., `PORT=3001`) or provide it inline:
+  ```powershell
+  $env:PORT=3001; npm start
+  ```
+
+---
+
+### 3. Missing Python / Ultralytics Dependencies
+**Symptom**: Auto-annotation skips local YOLO or logs `No module named 'ultralytics'`.
+**Solution**: Ensure your active Python environment has PyTorch and Ultralytics installed:
+```powershell
+pip install ultralytics torch torchvision
+```
+Verify the model weights exist in `models/ved-symbols.pt`.
+
+---
+
+### 4. API Key Configuration (`api_key_missing`)
+**Symptom**: Auto-annotation returns `status: 'api_key_missing'` with message that no detection engine is configured.
+**Solution**: Either:
+- Enable local YOLO: Set `ENABLE_LOCAL_YOLO=true` in `.env` with `models/ved-symbols.pt` present.
+- Configure cloud keys: Paste your Gemini key (`GEMINI_API_KEY=...`) or Groq key (`GROQ_API_KEY=...`) into `.env`. Run diagnostics to verify:
+  ```powershell
+  npm run diagnose:gemini
+  npm run diagnose:groq
+  ```
 
 ---
 

@@ -165,6 +165,51 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // API Export Training Data endpoint (images, YOLO .txt labels, dataset.yaml)
+  if (pathname === '/api/export-training-data' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 100 * 1024 * 1024) {
+        res.writeHead(413, { 'Content-Type': 'text/plain' });
+        res.end('Payload Too Large');
+        req.destroy();
+      }
+    });
+
+    req.on('end', () => {
+      try {
+        const reqData = JSON.parse(body || '{}');
+        let reviewPayload = reqData.payload;
+        if (!reviewPayload || !Array.isArray(reviewPayload.sheets)) {
+          const defaultPath = fs.existsSync(path.join(ROOT_DIR, 'data', 'labeled-review.json'))
+            ? path.join(ROOT_DIR, 'data', 'labeled-review.json')
+            : path.join(ROOT_DIR, 'data', 'starting-progress.json');
+          if (fs.existsSync(defaultPath)) {
+            reviewPayload = JSON.parse(fs.readFileSync(defaultPath, 'utf8'));
+          } else {
+            sendJson(res, 400, { error: 'No review payload provided and baseline data not found.' });
+            return;
+          }
+        }
+
+        const { exportYoloDataset } = require('./scripts/export-yolo-dataset.cjs');
+        const outputDir = reqData.outputDir || path.join(ROOT_DIR, 'training_dataset');
+        const summary = exportYoloDataset(reviewPayload, { outputDir });
+
+        sendJson(res, 200, {
+          status: 'success',
+          summary,
+          message: `Saved ${summary.total_bounding_boxes} labels across ${summary.total_sheets} sheets to ${outputDir}`
+        });
+      } catch (error) {
+        console.error('[Export Training Data] Error:', error);
+        sendJson(res, 500, { error: error.message });
+      }
+    });
+    return;
+  }
+
   // Serve static assets
   if (req.method === 'GET') {
     serveStatic(req, res, pathname);

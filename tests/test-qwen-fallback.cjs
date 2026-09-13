@@ -3,7 +3,7 @@ const vm = require('vm');
 const path = require('path');
 const { createRequire } = require('module');
 const assert = require('node:assert/strict');
-const liveDir = 'C:/Users/kupal/Downloads/VED-floor-plan-review-portable';
+const liveDir = path.resolve(__dirname, '..');
 const liveRequire = createRequire(path.join(liveDir, 'auto-annotate.cjs'));
 const code = fs.readFileSync(path.join(liveDir, 'auto-annotate.cjs'), 'utf8');
 const Q38 = 'qwen/qwen3.8-27b', Q36 = 'qwen/qwen3.6-27b';

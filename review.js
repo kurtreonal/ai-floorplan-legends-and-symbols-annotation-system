@@ -491,6 +491,29 @@
   $('accept-all-auto')?.addEventListener('click',acceptAllAuto);
   $('reject-all-auto')?.addEventListener('click',rejectAllAuto);
   $('export').onclick=()=>{try{C.validateReview(payload(),baseline);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(payload(),null,2)],{type:'application/json'}));a.download='ved-annotation-corrections.json';a.click();}catch(e){status('Export blocked: '+e.message);}};
+  $('btn-export-training')?.addEventListener('click',async ()=>{
+    try {
+      status('Saving training dataset (images, YOLO .txt labels, and dataset.yaml)...');
+      const dataPayload=payload();
+      C.validateReview(dataPayload,baseline);
+      const res=await fetch('/api/export-training-data',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({payload:dataPayload})
+      });
+      if(!res.ok){
+        const err=await res.json().catch(()=>({}));
+        throw new Error(err.error||res.statusText);
+      }
+      const result=await res.json();
+      const count=result.summary?.total_bounding_boxes||0;
+      const sheetsCount=result.summary?.total_sheets||0;
+      status(`Training dataset saved! ${count} YOLO labels across ${sheetsCount} sheets written to training_dataset/ (ready for AI training).`);
+    } catch(e) {
+      status('Server export failed: '+e.message+'. Downloading client JSON review export instead.');
+      $('export').click();
+    }
+  });
   window.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='z'){$('undo').click();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='y'){$('redo').click();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='a'){$('btn-auto-annotate')?.click();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='c'){copySelection();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='v'){pasteSelection();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='g'){e.preventDefault();(e.shiftKey?$('ungroup-selection'):$('group-selection')).click();}else if(e.key==='Backspace'){const tag=(e.target&&e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='textarea'||e.target?.isContentEditable)return;e.preventDefault();if(drawing.length){drawing.pop();if(drawing.length)preview();else cancelDrawing();}else if(selected||multi.size){$('delete').click();}}else if(e.key==='Enter'&&drawing.length)window.reviewWorkspace.finishDrawing();else if(e.key==='Escape')cancelDrawing();else if(e.key==='+'||e.key==='=')zoom(.65);else if(e.key==='-')zoom(1.5);else if(e.key.toLowerCase()==='t')toggleTheme();else if(e.key.toLowerCase()==='f')fit();});
   function renderCoverage(){const body=$('all-sheets');if(!body)return;body.replaceChildren();for(const sheet of D.sheets){const counts={};for(const a of sheet.annotations.filter(a=>a.review_state!=='deleted'))counts[a.layer]=(counts[a.layer]||0)+1;const row=document.createElement('tr');[sheet.group,sheet.filename,counts.symbols||0,counts.geometry||0,counts.wiring||0,counts.legend||0,counts.ocr||0].forEach(value=>{const cell=document.createElement('td');cell.textContent=value;row.append(cell);});body.append(row);}}
   function toggleHelp(force){const overlay=$('help-overlay');if(!overlay)return;overlay.hidden=force===undefined?!overlay.hidden:!force;}

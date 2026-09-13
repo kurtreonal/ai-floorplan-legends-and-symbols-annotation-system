@@ -5,5 +5,9 @@
 # Node dependencies
 node_modules/
 
-# Logs
+# Logs and temporary files
 *.log
+.temp/
+
+# Generated AI training export datasets
+training_dataset/

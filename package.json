@@ -10,7 +10,8 @@
     "test:qwen": "node tests/test-qwen-fallback.cjs",
     "diagnose:groq": "node scripts/diagnose-groq.cjs",
     "diagnose:gemini": "node scripts/diagnose-gemini.cjs",
-    "diagnose:images": "node scripts/diagnose-gemini-images.cjs"
+    "diagnose:images": "node scripts/diagnose-gemini-images.cjs",
+    "export:yolo": "node scripts/export-yolo-dataset.cjs"
   },
   "keywords": [
     "floor-plan",
