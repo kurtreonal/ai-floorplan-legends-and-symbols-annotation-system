@@ -1,0 +1,179 @@
+// server.cjs
+// Local lightweight HTTP server for VED Floor-Plan Review app & Auto-Annotation API
+// Zero external npm dependencies.
+
+const http = require('http');
+const fs = require('fs');
+const path = require('path');
+const url = require('url');
+
+// Automatically load .env file if present (supported natively in Node 20.6+)
+const envPath = path.join(__dirname, '.env');
+if (typeof process.loadEnvFile === 'function' && fs.existsSync(envPath)) {
+  try {
+    process.loadEnvFile(envPath);
+  } catch (err) {
+    console.warn('[Server] Could not load .env file:', err.message);
+  }
+}
+
+const { runAutoAnnotation, isYoloAvailable } = require('./auto-annotate.cjs');
+
+const PORT = parseInt(process.env.PORT || '3000', 10);
+const ROOT_DIR = __dirname;
+
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'application/javascript; charset=utf-8',
+  '.cjs': 'application/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.pdf': 'application/pdf'
+};
+
+function sendJson(res, statusCode, data) {
+  const payload = JSON.stringify(data);
+  res.writeHead(statusCode, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Content-Length': Buffer.byteLength(payload),
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  });
+  res.end(payload);
+}
+
+function serveStatic(req, res, pathname) {
+  let filePath = path.join(ROOT_DIR, pathname === '/' ? 'review.html' : pathname);
+  
+  // Security check: prevent path traversal
+  if (!filePath.startsWith(ROOT_DIR)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden');
+    return;
+  }
+
+  fs.stat(filePath, (err, stats) => {
+    if (err || !stats.isFile()) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('File Not Found');
+      return;
+    }
+
+    const ext = path.extname(filePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': stats.size,
+      'Cache-Control': 'no-cache'
+    });
+
+    fs.createReadStream(filePath).pipe(res);
+  });
+}
+
+const server = http.createServer((req, res) => {
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    });
+    res.end();
+    return;
+  }
+
+  const parsedUrl = url.parse(req.url, true);
+  const pathname = decodeURIComponent(parsedUrl.pathname);
+
+  // API Status endpoint
+  if (pathname === '/api/status' && req.method === 'GET') {
+    const hasGeminiKey = !!process.env.GEMINI_API_KEY;
+    const hasGroqKey = !!process.env.GROQ_API_KEY;
+    const hasYolo = typeof isYoloAvailable === 'function' && isYoloAvailable();
+    sendJson(res, 200, {
+      status: 'online',
+      has_gemini_api_key: hasGeminiKey,
+      has_groq_api_key: hasGroqKey,
+      has_local_yolo: hasYolo,
+      primary_detector: 'local_yolo (26n -> 11)',
+      yolo_models: ['yolo26n.pt', 'yolo11n.pt'],
+      model: 'gemini-3.8-flash',
+      groq_model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
+      groq_fallback_model: process.env.GROQ_FALLBACK_MODEL || 'qwen/qwen3.6-27b',
+      model_hopping: true,
+      workspace: 'VED-floor-plan-review-portable-2.0'
+    });
+    return;
+  }
+
+  // API Auto-Annotation endpoint
+  if (pathname === '/api/auto-annotate' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 50 * 1024 * 1024) { // 50MB limit
+        res.writeHead(413, { 'Content-Type': 'text/plain' });
+        res.end('Payload Too Large');
+        req.destroy();
+      }
+    });
+
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const sheetId = payload.sheet_id;
+        const currentAnnotations = payload.current_annotations || [];
+        const options = payload.options || {};
+        const sheetMeta = payload.sheet_meta || null;
+
+        if (!sheetId) {
+          sendJson(res, 400, { error: 'Missing required field: sheet_id' });
+          return;
+        }
+
+        console.log(`[Auto-Annotate] Received request for sheet: ${sheetId}`);
+        const result = await runAutoAnnotation(sheetId, currentAnnotations, options, sheetMeta);
+        console.log(`[Auto-Annotate] Generated ${result.annotations?.length || 0} proposals for ${sheetId}`);
+        sendJson(res, 200, result);
+      } catch (error) {
+        console.error('[Auto-Annotate] Error processing request:', error);
+        if (error.retryAfter) res.setHeader('Retry-After', error.retryAfter);
+        sendJson(res, error.statusCode || 500, {
+          error: error.message,
+          code: error.code || 'auto_annotation_failed'
+        });
+      }
+    });
+    return;
+  }
+
+  // Serve static assets
+  if (req.method === 'GET') {
+    serveStatic(req, res, pathname);
+    return;
+  }
+
+  res.writeHead(405, { 'Content-Type': 'text/plain' });
+  res.end('Method Not Allowed');
+});
+
+if (require.main === module) {
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`VED Review & Auto-Annotation Server running at http://127.0.0.1:${PORT}/`);
+    console.log(`Primary detector: Local YOLO (26n -> 11) available: ${typeof isYoloAvailable === 'function' && isYoloAvailable()}`);
+    console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);
+    console.log(`Groq API Key configured: ${!!process.env.GROQ_API_KEY} (qwen3.8 with qwen3.6 fallback)`);
+  });
+}
+
+module.exports = server;

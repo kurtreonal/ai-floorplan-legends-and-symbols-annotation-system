@@ -1,0 +1,33 @@
+{
+  "name": "ved-floor-plan-review-portable",
+  "version": "2.0.0",
+  "description": "Portable floor plan review and multi-provider AI auto-annotation system (Ultralytics YOLO, Gemini Vision, Groq Qwen Vision)",
+  "main": "server.cjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node tests/test-auto-annotate.cjs",
+    "test:server": "node tests/test-server-integration.cjs",
+    "test:qwen": "node tests/test-qwen-fallback.cjs",
+    "diagnose:groq": "node scripts/diagnose-groq.cjs",
+    "diagnose:gemini": "node scripts/diagnose-gemini.cjs",
+    "diagnose:images": "node scripts/diagnose-gemini-images.cjs"
+  },
+  "keywords": [
+    "floor-plan",
+    "electrical-symbols",
+    "annotation",
+    "yolo",
+    "gemini",
+    "groq",
+    "qwen",
+    "konva"
+  ],
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "sharp": "^0.33.5"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

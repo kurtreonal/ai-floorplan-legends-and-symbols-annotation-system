@@ -1,0 +1,137 @@
+// Three controlled requests using the app's actual tile/reference construction.
+// No annotation results, images, prompts, or API keys are printed or saved.
+const fs = require('fs');
+const path = require('path');
+const appDir = process.env.VED_DIAGNOSTIC_APP_DIR || (fs.existsSync(path.join(__dirname, 'auto-annotate.cjs')) ? __dirname : path.resolve(__dirname, '..'));
+
+async function prepare(sheetId) {
+  const engine = require(path.join(appDir, 'auto-annotate.cjs'));
+  const originalFetch = global.fetch;
+  const originalKey = process.env.GEMINI_API_KEY;
+  let captured;
+  // Intercept the first request before any network access; 400 avoids retries.
+  global.fetch = async (url, options) => {
+    captured = { url, body: JSON.parse(options.body) };
+    return new Response(JSON.stringify({ error: { message: 'Diagnostic request captured locally.' } }), {
+      status: 400, headers: { 'Content-Type': 'application/json' }
+    });
+  };
+  if (!originalKey) process.env.GEMINI_API_KEY = 'local-capture-only';
+  try {
+    await engine.runAutoAnnotation(sheetId, []);
+  } catch (error) {
+    if (!captured) throw error;
+  } finally {
+    global.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.GEMINI_API_KEY;
+    else process.env.GEMINI_API_KEY = originalKey;
+  }
+  if (!captured) throw new Error('No drawing request was built. Choose a plan sheet, not a legend sheet.');
+  return captured;
+}
+
+function variants(body) {
+  const full = structuredClone(body);
+  // Same instruction in all three stages, to keep diagnostics small.
+  full.contents[0].parts.push({text: 'Diagnostic only: return at most three visible missing symbols.'});
+  const target = structuredClone(full);
+  const parts = target.contents[0].parts;
+  const manifestPart = parts.find(p => p.text?.startsWith('JSON Manifest:'));
+  if (!manifestPart) throw new Error('The app request manifest format changed.');
+  const manifest = JSON.parse(manifestPart.text.slice('JSON Manifest:'.length).trim());
+  manifest.references = [];
+  manifest.images = manifest.images.filter(i => i.role === 'target');
+  manifestPart.text = 'JSON Manifest:\n' + JSON.stringify(manifest);
+  let seenImage = false;
+  target.contents[0].parts = parts.filter(part => {
+    if (!part.inline_data) return true;
+    if (seenImage) return false;
+    seenImage = true;
+    return true;
+  });
+  const noSchema = structuredClone(target);
+  delete noSchema.generationConfig.response_schema;
+  delete noSchema.generationConfig.responseSchema;
+  delete noSchema.generationConfig.responseJsonSchema;
+  return [
+    { name: '1. Target tile + prompt; no response schema or references', body: noSchema },
+    { name: '2. Same tile + prompt + production response schema', body: target },
+    { name: '3. Same tile + schema + approved legend/reference images', body: full }
+  ];
+}
+
+function minimalVariants(body) {
+  const image = body.contents[0].parts.find(part => part.inline_data)?.inline_data;
+  if (!image) throw new Error('No target image was found in the prepared request.');
+  const text = 'Describe this image in one short sentence.';
+  return [
+    {
+      name: '1. Minimal image through generateContent; default settings',
+      protocol: 'generateContent',
+      body: { contents: [{ parts: [{ text }, { inline_data: image }] }] }
+    },
+    {
+      name: '2. Same minimal image through Interactions; default settings',
+      protocol: 'interactions',
+      url: 'https://generativelanguage.googleapis.com/v1beta/interactions',
+      body: {
+        model: 'gemini-3.8-flash',
+        input: [{ type: 'text', text }, { type: 'image', data: image.data, mime_type: image.mime_type }]
+      }
+    }
+  ];
+}
+
+async function main() {
+  const args = process.argv.slice(2);
+  const dryRun = args.includes('--prepare-only');
+  const sheetId = args.find(a => !a.startsWith('--')) || 'sheet-51';
+  const key = process.env.GEMINI_API_KEY;
+  if (!key && !dryRun) throw new Error('Run this in the same terminal where GEMINI_API_KEY is set.');
+  console.log(`Preparing the first tile of bundled drawing ${sheetId}. This is not your browser-only imported drawing.`);
+  const captured = await prepare(sheetId);
+  const tests = args.includes('--minimal') ? minimalVariants(captured.body) : variants(captured.body);
+  const results = [];
+  for (const test of tests) {
+    const images = test.protocol === 'interactions'
+      ? test.body.input.filter(p => p.type === 'image').length
+      : test.body.contents[0].parts.filter(p => p.inline_data).length;
+    const body = JSON.stringify(test.body);
+    console.log(`\n${test.name} (${images} images; ${Math.round(Buffer.byteLength(body) / 1024)} KB request)`);
+    if (dryRun) continue;
+    const started = Date.now();
+    try {
+      const response = await fetch(test.url || captured.url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
+        body, signal: AbortSignal.timeout(60000)
+      });
+      const data = await response.json().catch(() => ({}));
+      const interaction = test.protocol === 'interactions';
+      const text = interaction
+        ? (data.steps || []).filter(s => s.type === 'model_output').flatMap(s => s.content || []).filter(p => p.type === 'text').map(p => p.text || '').join('')
+        : (data.candidates?.[0]?.content?.parts || []).filter(p => !p.thought).map(p => p.text || '').join('');
+      const finish = interaction ? data.status : data.candidates?.[0]?.finishReason;
+      const validGeneration = response.ok && !!text.trim() && finish === (interaction ? 'completed' : 'STOP');
+      console.log(`HTTP ${response.status}; ${((Date.now() - started) / 1000).toFixed(1)}s; provider status ${data.error?.status || '-'}; finish ${finish || '-'}`);
+      console.log(`Completed generation: ${validGeneration ? 'yes' : 'no'}`);
+      if (data.usageMetadata?.totalTokenCount != null) console.log(`Total tokens: ${data.usageMetadata.totalTokenCount}`);
+      if (interaction && data.usage?.total_tokens != null) console.log(`Total tokens: ${data.usage.total_tokens}`);
+      results.push({ stage: test.name[0], http: response.status, completed: validGeneration });
+      if ([401, 403, 429].includes(response.status)) { console.log('Stopping to avoid further authentication/quota failures.'); break; }
+    } catch (error) {
+      const reason = error.name === 'TimeoutError' ? 'timeout' : 'network error';
+      console.log(`Request ended with ${reason}.`);
+      results.push({ stage: test.name[0], http: reason, completed: false });
+    }
+  }
+  if (dryRun) { console.log('\nPreparation verified. No API requests made.'); return; }
+  console.log('\nSummary: ' + JSON.stringify(results));
+  console.log('Different results identify a stage to investigate; a single sequence cannot rule out fluctuating provider load. This test does not validate detection accuracy or change any annotations.');
+  if (results.some(r => !r.completed)) process.exitCode = 1;
+}
+
+if (require.main === module) main().catch(error => {
+  console.error('Diagnostic stopped before completion: ' + error.message);
+  process.exitCode = 1;
+});
+module.exports = { prepare, variants, minimalVariants };

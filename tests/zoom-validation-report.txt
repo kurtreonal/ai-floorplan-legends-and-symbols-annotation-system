@@ -1,0 +1,41 @@
+--- 1) exponential factor curve (verbatim factorOf) ---
+deltaY= -100 pinch=false  factor=1.1275  -> view WIDER = zoom OUT
+deltaY=  100 pinch=false  factor=0.8869  -> view NARROWER = zoom IN
+deltaY= -100 pinch=true  factor=1.2200  -> view WIDER = zoom OUT
+deltaY=  100 pinch=true  factor=0.8200  -> view NARROWER = zoom IN
+deltaY=   -4 pinch=true  factor=1.0101  -> view WIDER = zoom OUT
+deltaY=    4 pinch=true  factor=0.9900  -> view NARROWER = zoom IN
+--- 2) cursor anchoring invariant ---
+cursor=(500,350) factor=1.1275  drift=0.00e+0px  OK
+cursor=(500,350) factor=0.8869  drift=0.00e+0px  OK
+cursor=(500,350) factor=1.2200  drift=0.00e+0px  OK
+cursor=(500,350) factor=0.5000  drift=0.00e+0px  OK
+cursor=(500,350) factor=2.0000  drift=0.00e+0px  OK
+cursor=(0,0) factor=1.1275  drift=0.00e+0px  OK
+cursor=(0,0) factor=0.8869  drift=0.00e+0px  OK
+cursor=(0,0) factor=1.2200  drift=0.00e+0px  OK
+cursor=(0,0) factor=0.5000  drift=0.00e+0px  OK
+cursor=(0,0) factor=2.0000  drift=0.00e+0px  OK
+cursor=(999,699) factor=1.1275  drift=1.14e-13px  OK
+cursor=(999,699) factor=0.8869  drift=0.00e+0px  OK
+cursor=(999,699) factor=1.2200  drift=0.00e+0px  OK
+cursor=(999,699) factor=0.5000  drift=0.00e+0px  OK
+cursor=(999,699) factor=2.0000  drift=0.00e+0px  OK
+cursor=(250,100) factor=1.1275  drift=1.42e-14px  OK
+cursor=(250,100) factor=0.8869  drift=1.42e-14px  OK
+cursor=(250,100) factor=1.2200  drift=0.00e+0px  OK
+cursor=(250,100) factor=0.5000  drift=0.00e+0px  OK
+cursor=(250,100) factor=2.0000  drift=0.00e+0px  OK
+--- 3) wheel direction semantics ---
+initial stage scale=0.5
+wheel forward (deltaY=-100) -> factor=1.1275 -> scale 0.5 -> 0.44346021835857874 = zoom OUT
+wheel back    (deltaY=+100) -> factor=0.8869 -> scale 0.5 -> 0.5637484257896879 = zoom IN
+note: zoom() treats factor as a VIEW-SIZE multiplier (view[2]*factor); setZoom slider uses factor=last/target, so higher slider value = zoom IN
+--- 4) pinch direction consistency ---
+touch pinch spread (dist 200->300): ratio=0.8833 -> zoom IN
+trackpad pinch spread (ctrl+wheel deltaY=-100): factor=1.2200 -> zoom OUT
+=> touch pinch and trackpad pinch move in OPPOSITE directions (inconsistent)
+--- 5) slider compatibility (verbatim setZoom factor=last/target) ---
+slider 1 -> 2: factor=0.5 (view halves = zoom IN); slider 2 -> 1: factor=2 (zoom OUT)
+--- 6) 200-notch wheel-forward sequence from fit ---
+after 200 forward notches: scale=1.888e-11 (finite), max cursor drift=0.00e+0px

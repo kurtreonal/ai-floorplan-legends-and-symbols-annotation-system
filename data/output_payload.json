@@ -1,0 +1,1669 @@
+{
+  "annotations": [
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "CCTV camera",
+      "legend_entry": "sheet-39:L06",
+      "box_2d": [
+        147,
+        862,
+        160,
+        897
+      ],
+      "match_quality": "strong",
+      "evidence": "Camera glyph pointed down-left at counting area tables",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "CCTV camera",
+      "legend_entry": "sheet-39:L06",
+      "box_2d": [
+        172,
+        862,
+        185,
+        897
+      ],
+      "match_quality": "strong",
+      "evidence": "Camera glyph mounted along east wall above stair opening",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Hold-up button switch",
+      "legend_entry": "sheet-39:L04",
+      "box_2d": [
+        177,
+        612,
+        188,
+        638
+      ],
+      "match_quality": "strong",
+      "evidence": "Square-in-circle glyph with HB label on teller counter",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Hold-up button switch",
+      "legend_entry": "sheet-39:L04",
+      "box_2d": [
+        177,
+        776,
+        188,
+        802
+      ],
+      "match_quality": "strong",
+      "evidence": "Square-in-circle glyph with HB label on teller counter",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Security control panel",
+      "legend_entry": "sheet-39:L01",
+      "box_2d": [
+        140,
+        560,
+        153,
+        603
+      ],
+      "match_quality": "strong",
+      "evidence": "Rectangle enclosure labeled SCP on north wall",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Vibration detector",
+      "legend_entry": "sheet-39:L05",
+      "box_2d": [
+        490,
+        707,
+        501,
+        741
+      ],
+      "match_quality": "strong",
+      "evidence": "Rectangle glyph labeled VD on reinforced vault north wall",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Vibration detector",
+      "legend_entry": "sheet-39:L05",
+      "box_2d": [
+        530,
+        707,
+        541,
+        741
+      ],
+      "match_quality": "strong",
+      "evidence": "Rectangle glyph labeled VD on reinforced vault partition",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Smoke detector",
+      "legend_entry": "sheet-39:L07",
+      "box_2d": [
+        661,
+        380,
+        671,
+        404
+      ],
+      "match_quality": "strong",
+      "evidence": "Circular glyph labeled SD located in banking hall corridor",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Manual pull station with horn and strobe",
+      "legend_entry": "sheet-39:L08",
+      "box_2d": [
+        797,
+        405,
+        810,
+        435
+      ],
+      "match_quality": "strong",
+      "evidence": "F/B station glyph near exit door and riser connection",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-40",
+      "layer": "symbols",
+      "label": "Security control panel",
+      "legend_entry": "sheet-39:L01",
+      "box_2d": [
+        545,
+        466,
+        558,
+        500
+      ],
+      "match_quality": "strong",
+      "evidence": "Enclosure symbol labeled SCP at branch security terminal",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        518,
+        507,
+        527,
+        517
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        611,
+        507,
+        621,
+        518
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        780,
+        443,
+        789,
+        453
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        871,
+        443,
+        882,
+        454
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        883,
+        401,
+        891,
+        415
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        938,
+        401,
+        949,
+        413
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        931,
+        453,
+        943,
+        466
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        931,
+        525,
+        942,
+        538
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        932,
+        589,
+        943,
+        600
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        928,
+        664,
+        940,
+        676
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        838,
+        715,
+        851,
+        728
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        839,
+        657,
+        850,
+        669
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        926,
+        742,
+        937,
+        752
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        938,
+        870,
+        950,
+        882
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        938,
+        820,
+        952,
+        835
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        782,
+        586,
+        792,
+        598
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        782,
+        548,
+        792,
+        562
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        775,
+        497,
+        784,
+        507
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        875,
+        551,
+        886,
+        562
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke-detector candidate",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        839,
+        599,
+        851,
+        611
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke-detector candidate in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-44:L02",
+      "box_2d": [
+        872,
+        716,
+        887,
+        730
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        890,
+        747,
+        900,
+        758
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        838,
+        775,
+        850,
+        786
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        804,
+        812,
+        816,
+        823
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        842,
+        808,
+        852,
+        822
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        880,
+        835,
+        891,
+        847
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        820,
+        835,
+        830,
+        847
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        618,
+        587,
+        628,
+        599
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        559,
+        605,
+        570,
+        617
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        563,
+        638,
+        572,
+        651
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        506,
+        641,
+        517,
+        650
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-44:L02",
+      "box_2d": [
+        521,
+        601,
+        533,
+        613
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        840,
+        882,
+        851,
+        891
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-44:L01",
+      "box_2d": [
+        884,
+        883,
+        896,
+        892
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-44:L02",
+      "box_2d": [
+        836,
+        856,
+        845,
+        865
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-43",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-44:L02",
+      "box_2d": [
+        887,
+        854,
+        898,
+        864
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active floor layout",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-45",
+      "layer": "symbols",
+      "label": "CCTV camera (dome type)",
+      "legend_entry": "sheet-48:L01",
+      "box_2d": [
+        486,
+        466,
+        497,
+        476
+      ],
+      "match_quality": "strong",
+      "evidence": "Ceiling dome camera symbol at access-controlled entrance door west of PE-01",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-45",
+      "layer": "symbols",
+      "label": "CCTV camera (dome type)",
+      "legend_entry": "sheet-48:L01",
+      "box_2d": [
+        479,
+        605,
+        491,
+        615
+      ],
+      "match_quality": "strong",
+      "evidence": "Ceiling dome camera symbol at access-controlled entrance door east of PE-05",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-45",
+      "layer": "symbols",
+      "label": "CCTV camera (dome type)",
+      "legend_entry": "sheet-48:L01",
+      "box_2d": [
+        145,
+        869,
+        156,
+        879
+      ],
+      "match_quality": "strong",
+      "evidence": "Ceiling dome camera symbol at northeast perimeter entrance door",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-46",
+      "layer": "symbols",
+      "label": "Duplex floor-mounted data outlet",
+      "legend_entry": "sheet-47:L03",
+      "box_2d": [
+        760,
+        830,
+        765,
+        837
+      ],
+      "match_quality": "strong",
+      "evidence": "Floor-mounted data outlet symbol on west side of boardroom conference table",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-46",
+      "layer": "symbols",
+      "label": "Duplex floor-mounted data outlet",
+      "legend_entry": "sheet-47:L03",
+      "box_2d": [
+        760,
+        846,
+        765,
+        853
+      ],
+      "match_quality": "strong",
+      "evidence": "Floor-mounted data outlet symbol on east side of boardroom conference table",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-46",
+      "layer": "symbols",
+      "label": "Duplex data outlet",
+      "legend_entry": "sheet-47:L02",
+      "box_2d": [
+        429,
+        288,
+        435,
+        295
+      ],
+      "match_quality": "strong",
+      "evidence": "Wall-mounted data outlet symbol on partition between Office 1 and Office 2",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-46",
+      "layer": "symbols",
+      "label": "Duplex data outlet",
+      "legend_entry": "sheet-47:L02",
+      "box_2d": [
+        564,
+        288,
+        570,
+        295
+      ],
+      "match_quality": "strong",
+      "evidence": "Wall-mounted data outlet symbol on partition between Office 3 and Office 4",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-46",
+      "layer": "symbols",
+      "label": "Simplex data outlet",
+      "legend_entry": "sheet-47:L01",
+      "box_2d": [
+        438,
+        389,
+        444,
+        396
+      ],
+      "match_quality": "strong",
+      "evidence": "Wall data outlet symbol near service stairs enclosure",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-46",
+      "layer": "symbols",
+      "label": "Simplex data outlet",
+      "legend_entry": "sheet-47:L01",
+      "box_2d": [
+        392,
+        361,
+        398,
+        368
+      ],
+      "match_quality": "strong",
+      "evidence": "Wall data outlet symbol along corridor partition near meeting room",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        416,
+        303,
+        426,
+        314
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        461,
+        268,
+        473,
+        279
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        519,
+        322,
+        529,
+        334
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        516,
+        246,
+        527,
+        260
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        538,
+        242,
+        552,
+        255
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        499,
+        186,
+        509,
+        199
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        397,
+        191,
+        412,
+        205
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        516,
+        132,
+        526,
+        145
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        462,
+        89,
+        472,
+        102
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        428,
+        61,
+        439,
+        76
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        583,
+        111,
+        595,
+        123
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        539,
+        113,
+        551,
+        125
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        581,
+        139,
+        593,
+        150
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        613,
+        110,
+        623,
+        124
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        655,
+        113,
+        666,
+        126
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        674,
+        182,
+        684,
+        195
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        600,
+        185,
+        612,
+        198
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        672,
+        319,
+        683,
+        332
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        601,
+        318,
+        611,
+        330
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        672,
+        443,
+        683,
+        455
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        599,
+        445,
+        612,
+        455
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        541,
+        429,
+        551,
+        439
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        694,
+        522,
+        706,
+        535
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        583,
+        525,
+        595,
+        534
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        507,
+        419,
+        519,
+        430
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        444,
+        413,
+        455,
+        424
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        432,
+        478,
+        443,
+        488
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        409,
+        434,
+        421,
+        446
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        364,
+        406,
+        376,
+        419
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        323,
+        466,
+        333,
+        479
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        254,
+        565,
+        266,
+        576
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        245,
+        624,
+        257,
+        637
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        296,
+        716,
+        304,
+        731
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        234,
+        718,
+        244,
+        731
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        191,
+        574,
+        204,
+        587
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        230,
+        447,
+        240,
+        461
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        227,
+        213,
+        239,
+        229
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        266,
+        64,
+        279,
+        76
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        146,
+        93,
+        156,
+        108
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        316,
+        221,
+        327,
+        234
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        643,
+        621,
+        653,
+        633
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        623,
+        653,
+        635,
+        663
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        659,
+        695,
+        669,
+        707
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        646,
+        748,
+        656,
+        761
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        592,
+        747,
+        602,
+        762
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        537,
+        749,
+        546,
+        760
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        483,
+        749,
+        493,
+        758
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        448,
+        736,
+        458,
+        748
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        504,
+        695,
+        513,
+        707
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        568,
+        656,
+        577,
+        668
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Conventional smoke detector",
+      "legend_entry": "sheet-50:L01",
+      "box_2d": [
+        452,
+        784,
+        462,
+        797
+      ],
+      "match_quality": "strong",
+      "evidence": "Conventional smoke detector in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-50:L02",
+      "box_2d": [
+        455,
+        445,
+        464,
+        457
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-50:L02",
+      "box_2d": [
+        485,
+        442,
+        494,
+        453
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-50:L02",
+      "box_2d": [
+        221,
+        318,
+        233,
+        332
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-50:L02",
+      "box_2d": [
+        602,
+        127,
+        615,
+        138
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active layout area",
+      "truncated": false
+    },
+    {
+      "sheet_id": "sheet-49",
+      "layer": "symbols",
+      "label": "Manual pull station with strobe light",
+      "legend_entry": "sheet-50:L02",
+      "box_2d": [
+        569,
+        124,
+        579,
+        136
+      ],
+      "match_quality": "strong",
+      "evidence": "Manual pull station with strobe light in active layout area",
+      "truncated": false
+    }
+  ]
+}
