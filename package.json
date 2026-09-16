@@ -15,7 +15,8 @@
     "test:drawing": "node tests/test-drawing-browser.cjs",
     "test:overlay": "node tests/test-overlay-click.cjs",
     "test:session": "node tests/test-saved-session.cjs",
-    "test:improver": "node tests/test-yolo-improver.cjs"
+    "test:improver": "node tests/test-yolo-improver.cjs",
+    "test:attached": "node tests/test-attached-image-detection.cjs"
   },
   "keywords": [
     "floor-plan",

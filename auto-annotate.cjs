@@ -498,6 +498,7 @@ function validateGroqDetection(parsed) {
     throw new Error('Qwen returned an invalid detection object.');
   }
   for (const annotation of parsed.annotations) {
+    if (annotation && !annotation.layer) annotation.layer = 'symbols';
     const box = annotation?.box_2d;
     if (typeof annotation?.label !== 'string' || !annotation.label.trim() || annotation.label.length > 1000 ||
         !['symbols', 'unresolved'].includes(annotation.layer) || !Array.isArray(box) || box.length !== 4 ||
@@ -830,87 +831,218 @@ function runYoloOnTile(targetBase64, tile, options = {}) {
   }
 }
 
-// Low-token API Improver & Verifier:
-// Sends single tile image + compact candidate prior boxes + compact legend text list (NO contact sheet images).
-// Drastically cuts token usage (>85% savings) while verifying true symbols, removing false positives,
-// and matching exact legend entries.
-async function improveDetectionsWithApi(targetBase64, tile, yoloDetections, candidateClasses, sheetId, options = {}) {
-  const priors = yoloDetections.map((d, i) => ({
+// Standard symbol label mapping for architectural and electrical plans
+const STANDARD_SYMBOL_MAPPING = {
+  'receptacle_duplex': 'Duplex 3-prong power outlet',
+  'duplex_3_prong_power_outlet': 'Duplex 3-prong power outlet',
+  'duplex_power_outlet': 'Duplex 3-prong power outlet',
+  'duplex_outlet': 'Duplex 3-prong power outlet',
+  'duplex': 'Duplex 3-prong power outlet',
+  'c.o.': 'Duplex 3-prong power outlet',
+  'co': 'Duplex 3-prong power outlet',
+  'wall_fan': 'Wall fan',
+  'wf': 'Wall fan',
+  'air_conditioning_unit': 'Air conditioning unit',
+  '1.50 acu': 'Air conditioning unit',
+  'acu': 'Air conditioning unit',
+  'circuit_homerun': 'Circuit homerun',
+  'homerun': 'Circuit homerun',
+  'panelboard': 'Panelboard',
+  'mdp': 'Panelboard'
+};
+
+function normalizeSymbolLabel(raw) {
+  if (!raw) return 'Candidate device';
+  const clean = String(raw).toLowerCase().trim().replace(/[-_]/g, ' ');
+
+  if (clean.includes('air conditioning') || clean.includes('acu') || /\b1\.50\s*acu\b/.test(clean)) {
+    return 'Air conditioning unit';
+  }
+  if (clean.includes('wall fan') || /\bwf\b/.test(clean)) {
+    return 'Wall fan';
+  }
+  if (clean.includes('circuit homerun') || clean.includes('homerun')) {
+    return 'Circuit homerun';
+  }
+  if (clean.includes('panelboard') || /\bmdp\b/.test(clean) || clean.includes('panel')) {
+    return 'Panelboard';
+  }
+  if (clean.includes('duplex') || clean.includes('receptacle') || /\bc\.?o\.?\b/.test(clean) || clean.includes('power outlet') || clean.includes('convenience outlet')) {
+    return 'Duplex 3-prong power outlet';
+  }
+  return raw;
+}
+
+function computeBoxDistance(b1, b2) {
+  const c1y = (b1[0] + b1[2]) / 2;
+  const c1x = (b1[1] + b1[3]) / 2;
+  const c2y = (b2[0] + b2[2]) / 2;
+  const c2x = (b2[1] + b2[3]) / 2;
+  return Math.hypot(c1y - c2y, c1x - c2x);
+}
+
+// Multi-Model Electrical Symbol Detector & Arbiter (Gemini + Qwen):
+// Uses Gemini (gemini-3.6-flash / 3.8-flash) and Groq Qwen (qwen3.8-27b) to detect
+// all electrical symbols (duplex C.O., wall fan WF, air conditioner ACU, panelboard, circuit homerun)
+// and arbitrate what to detect and what to reject (pruning door swings and false homeruns).
+// Sends single tile image with zero contact sheets (<85% token usage).
+async function improveDetectionsWithApi(targetBase64, tile, yoloDetections = [], candidateClasses = [], sheetId, options = {}) {
+  const priors = (yoloDetections || []).map((d, i) => ({
     id: `c${i + 1}`,
     box_2d: d.box_2d,
     tentative_label: d.label,
     confidence: d.confidence
   }));
 
-  const systemInstruction = 'You are an expert electrical blueprint symbol verifier. Your task is to verify pre-detected candidate symbols on this floor plan tile image, filter out false positives (e.g. wall junctions, door swings, dimension lines, letters/numbers), refine bounding boxes tightly around glyphs, and match each valid symbol to its corresponding legend entry. Coordinates are normalized 0-1000 [ymin, xmin, ymax, xmax]. Return strictly valid JSON: {"status":"ok","annotations":[{"label":"string","legend_entry":"string or null","layer":"symbols","box_2d":[ymin,xmin,ymax,xmax],"match_quality":"strong"|"tentative","evidence":"string","truncated":false}]}';
+  const systemInstruction = `You are an expert electrical blueprint symbol detector and arbiter.
+Your mission is to detect all genuine electrical symbols in this floor plan tile image with normalized 0-1000 bounding boxes [ymin, xmin, ymax, xmax].
+Important electrical symbol classes to detect:
+1. "receptacle_duplex": Duplex convenience outlet (circle with 2 parallel prongs or hash marks crossing through it, labeled 'C.O.'). Detect every single C.O. outlet!
+2. "wall_fan": Wall fan (circle containing 'WF' letters). Detect all WF circles!
+3. "air_conditioning_unit": Air conditioning unit (circle containing a solid black triangular pointer/wedge, labeled '1.50 ACU' or 'ACU').
+4. "circuit_homerun": True circuit homerun (thick curved arc terminating directly with an arrow or ending at a panelboard tag circle like '4 / MDP' or '2 / MDP').
+5. "panelboard": Distribution panel tag circle (such as '4 / MDP' or '2 / MDP').
 
-  const userPrompt = `Tile ID: ${tile.id}.\nPre-detected candidate symbols from YOLO:\n${JSON.stringify(priors, null, 2)}\n\nLegend catalog definitions:\n${JSON.stringify((candidateClasses || []).slice(0, 30), null, 2)}\n\nInstructions:\n1. Verify each candidate symbol against the tile image.\n2. Tightly fit [ymin, xmin, ymax, xmax] around the electrical symbol glyph.\n3. Discard candidates that are wall lines, door swings, or text.\n4. If an obvious electrical symbol on this tile was missed by YOLO, add it.\n5. Match label and legend_entry to the catalog if possible.\nOutput strictly valid JSON.`;
+STRICT REJECTION RULES - Decide what is NOT an electrical symbol:
+- Architectural door swings (quarter-circle arcs with radial door lines) are NOT circuit homeruns. DISCARD them!
+- Dimension lines, wall lines, room boundary markers, and grid numbers (like 1, 2, 3, 4) MUST NOT be detected as symbols.
+- If a candidate symbol proposed by YOLO is a door swing, wall junction, or text, DISCARD it.
 
-  const timeoutMs = 30000;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+Return strictly valid JSON:
+{"status":"ok","annotations":[{"label":"string","legend_entry":"string or null","layer":"symbols","box_2d":[ymin,xmin,ymax,xmax],"match_quality":"strong"|"tentative","evidence":"string","truncated":false}]}`;
 
-  try {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    const groqKey = process.env.GROQ_API_KEY;
+  const userPrompt = `Tile ID: ${tile.id}.
+Pre-detected candidate symbols from YOLO:
+${JSON.stringify(priors, null, 2)}
 
-    if (geminiKey && geminiKey.trim() && !options.useGroqOnly) {
-      const parts = [
-        { text: userPrompt },
-        { inline_data: { mime_type: 'image/png', data: targetBase64 } }
-      ];
+Legend catalog definitions:
+${JSON.stringify((candidateClasses || []).slice(0, 30), null, 2)}
 
-      const requestBody = {
-        contents: [{ parts }],
-        system_instruction: { parts: [{ text: systemInstruction }] },
-        generationConfig: {
-          response_mime_type: 'application/json',
-          temperature: 0.1
-        }
-      };
+Instructions:
+1. Detect all visible electrical symbols on this tile: specifically all C.O. duplex convenience outlets, all WF wall fans, all 1.50 ACU air conditioners, all panelboard circles, and true circuit homeruns.
+2. Verify or prune YOLO candidates: DISCARD candidates that are door swings, architectural wall lines, dimension lines, or letters/numbers.
+3. Classify ONLY true curved arcs connecting to panelboard circles as circuit_homerun. Reject door swings.
+4. Tightly fit [ymin, xmin, ymax, xmax] around the electrical symbol glyph.
+Output strictly valid JSON.`;
 
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent`;
-      const res = await fetch(apiUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': geminiKey.trim()
-        },
-        body: JSON.stringify(requestBody),
-        signal: controller.signal
-      });
+  const timeoutMs = 45000;
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const groqKey = process.env.GROQ_API_KEY;
 
-      if (res.ok) {
-        const data = await res.json();
-        const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        const parsed = extractJson(rawText);
-        if (parsed && Array.isArray(parsed.annotations)) {
-          return { parsedResponse: parsed, modelUsed: 'gemini-3.8-flash (improver)' };
+  if (!geminiKey && !groqKey) {
+    throw new Error('No detection API key configured (GEMINI_API_KEY or GROQ_API_KEY required).');
+  }
+
+  // Sub-routine: Gemini detection
+  async function runGeminiCall() {
+    if (!geminiKey || !geminiKey.trim() || options.useGroqOnly) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+    try {
+      for (const model of modelsToTry) {
+        try {
+          const parts = [
+            { text: userPrompt },
+            { inline_data: { mime_type: 'image/png', data: targetBase64 } }
+          ];
+          const requestBody = {
+            contents: [{ parts }],
+            system_instruction: { parts: [{ text: systemInstruction }] },
+            generationConfig: {
+              response_mime_type: 'application/json',
+              temperature: 0.1
+            }
+          };
+          const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+          let res = await fetch(apiUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-goog-api-key': geminiKey.trim()
+            },
+            body: JSON.stringify(requestBody),
+            signal: controller.signal
+          });
+
+          if (res.status === 503) {
+            console.warn(`[Auto-Annotate] Gemini ${model} returned 503 demand spike. Retrying after 1.5s...`);
+            await new Promise(r => setTimeout(r, 1500));
+            res = await fetch(apiUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': geminiKey.trim()
+              },
+              body: JSON.stringify(requestBody),
+              signal: controller.signal
+            });
+          }
+
+          if (res.ok) {
+            const data = await res.json();
+            const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            const parsed = extractJson(rawText);
+            if (parsed && Array.isArray(parsed.annotations)) {
+              return { annotations: parsed.annotations, modelUsed: model };
+            } else {
+              console.warn(`[Auto-Annotate] Gemini ${model} response did not contain annotations array:`, rawText?.slice(0, 200));
+            }
+          } else {
+            const errText = await res.text();
+            console.warn(`[Auto-Annotate] Gemini ${model} HTTP error ${res.status}:`, errText.slice(0, 200));
+          }
+        } catch (err) {
+          console.warn(`[Auto-Annotate] Gemini ${model} exception:`, err.message);
+          if (err.name === 'AbortError') break;
         }
       }
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
+  }
 
-    if (groqKey && groqKey.trim()) {
+  // Sub-routine: Groq Qwen detection
+  async function runGroqCall() {
+    if (!groqKey || !groqKey.trim() || options.useGeminiOnly) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
       const targetJpegBuf = await sharp(Buffer.from(targetBase64, 'base64'))
-        .resize(512, 512, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 75 })
+        .resize(768, 768, { fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 80 })
         .toBuffer();
 
+      const groqModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
+      const groqSystemPrompt = `You are an expert electrical blueprint symbol detector.
+Detect all visible electrical symbols on this tile.
+Important classes:
+- "receptacle_duplex": All C.O. duplex convenience outlets (circle with 2 parallel prongs or hash marks).
+- "wall_fan": All WF circles (circle with 'WF' letters).
+- "air_conditioning_unit": All ACU air conditioners (circle with solid black triangle pointer).
+- "panelboard": MDP panel circles (e.g. '4 / MDP', '2 / MDP').
+- "circuit_homerun": True curved homerun arcs terminating at panel circles. (Do NOT detect door swings or wall lines!).
+Return strictly JSON: {"status":"ok","annotations":[{"label":"string","layer":"symbols","box_2d":[ymin,xmin,ymax,xmax]}]}`;
+
+      const groqUserPrompt = `Candidate hints: ${JSON.stringify(priors.map(p => ({ label: p.tentative_label, box_2d: p.box_2d })))}\nDetect every C.O. duplex outlet, WF wall fan, 1.50 ACU, and true homerun arc. Discard door swings and text.`;
+
       const groqPayload = {
-        model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
+        model: groqModel,
         messages: [
-          { role: 'system', content: systemInstruction },
+          { role: 'system', content: groqSystemPrompt },
           {
             role: 'user',
             content: [
-              { type: 'text', text: userPrompt },
+              { type: 'text', text: groqUserPrompt },
               { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${targetJpegBuf.toString('base64')}` } }
             ]
           }
         ],
         response_format: { type: 'json_object' },
         temperature: 0.1,
-        max_tokens: 800
+        max_tokens: 800,
+        reasoning_format: 'hidden'
       };
 
       const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -927,14 +1059,121 @@ async function improveDetectionsWithApi(targetBase64, tile, yoloDetections, cand
         const data = await res.json();
         const rawText = data.choices?.[0]?.message?.content;
         const parsed = validateGroqDetection(extractJson(rawText));
-        return { parsedResponse: parsed, modelUsed: `${groqPayload.model} (improver)` };
+        if (parsed && Array.isArray(parsed.annotations)) {
+          return { annotations: parsed.annotations, modelUsed: groqModel };
+        }
+      }
+      return null;
+    } catch (err) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const runDual = !options.useGroqOnly && !options.useGeminiOnly && !!geminiKey && !!groqKey;
+  let geminiResult = null;
+  let groqResult = null;
+
+  if (runDual) {
+    const [gRes, qRes] = await Promise.allSettled([runGeminiCall(), runGroqCall()]);
+    geminiResult = gRes.status === 'fulfilled' ? gRes.value : null;
+    groqResult = qRes.status === 'fulfilled' ? qRes.value : null;
+  } else if (geminiKey && !options.useGroqOnly) {
+    geminiResult = await runGeminiCall();
+  } else {
+    groqResult = await runGroqCall();
+  }
+
+  if (!geminiResult && !groqResult) {
+    throw new Error('No API detector returned a valid response');
+  }
+
+  // Combined Decision & Arbitration Logic
+  const rawList = [];
+  const primaryAnnotations = geminiResult?.annotations || groqResult?.annotations || [];
+  const secondaryAnnotations = geminiResult && groqResult ? groqResult.annotations : [];
+  const primaryModel = geminiResult ? geminiResult.modelUsed : groqResult.modelUsed;
+  const secondaryModel = geminiResult && groqResult ? groqResult.modelUsed : null;
+
+  for (const ann of primaryAnnotations) {
+    const normLabel = normalizeSymbolLabel(ann.label);
+    rawList.push({
+      ...ann,
+      label: normLabel,
+      verified_by: [primaryModel]
+    });
+  }
+
+  for (const sAnn of secondaryAnnotations) {
+    const sNorm = normalizeSymbolLabel(sAnn.label);
+    const box = sAnn.box_2d;
+    if (!box || box.length !== 4) continue;
+    const matchIdx = rawList.findIndex(c => {
+      const iou = computeIoU(c.box_2d, box);
+      const dist = computeBoxDistance(c.box_2d, box);
+      return (c.label === sNorm && (iou > 0.20 || dist < 120)) || iou > 0.35 || dist < 50;
+    });
+
+    if (matchIdx >= 0) {
+      rawList[matchIdx].verified_by.push(secondaryModel);
+      rawList[matchIdx].match_quality = 'strong';
+    } else {
+      rawList.push({
+        ...sAnn,
+        label: sNorm,
+        verified_by: [secondaryModel],
+        match_quality: 'tentative'
+      });
+    }
+  }
+
+  // Prune false circuit homeruns:
+  // True homeruns connect to panelboards. If an item is labeled 'Circuit homerun' but does not connect to an MDP panel
+  // or was tagged as a door swing/wiring line, prune it.
+  const panelCircles = rawList.filter(a => a.label === 'Panelboard');
+  const filteredAnnotations = [];
+  const panelHomerunSeen = new Set();
+
+  for (const item of rawList) {
+    if (item.label === 'Circuit homerun') {
+      const nearestPanel = panelCircles.find(p => computeBoxDistance(item.box_2d, p.box_2d) < 160);
+      const ev = (item.evidence || '').toLowerCase();
+      const mentionsPanel = ev.includes('panel') || ev.includes('mdp') || ev.includes('curved arc');
+      const mentionsDoor = ev.includes('door') || ev.includes('swing') || ev.includes('dimension');
+
+      if (mentionsDoor) {
+        // Explicitly rejected door swing
+        continue;
+      }
+      if (!nearestPanel && !mentionsPanel) {
+        // False homerun not connecting to any panel circle
+        continue;
+      }
+
+      // Deduplicate if multiple models propose a homerun for the same panel
+      if (nearestPanel) {
+        const panelKey = `${Math.round(nearestPanel.box_2d[0] / 150)},${Math.round(nearestPanel.box_2d[1] / 150)}`;
+        if (panelHomerunSeen.has(panelKey)) {
+          continue;
+        }
+        panelHomerunSeen.add(panelKey);
       }
     }
-
-    throw new Error('No API improver returned a valid response');
-  } finally {
-    clearTimeout(timer);
+    filteredAnnotations.push(item);
   }
+
+  const modelUsedDesc = geminiResult && groqResult
+    ? `${geminiResult.modelUsed} + ${groqResult.modelUsed} (dual-arbiter)`
+    : (geminiResult ? `${geminiResult.modelUsed} (detector)` : `${groqResult.modelUsed} (detector)`);
+
+  return {
+    parsedResponse: {
+      status: 'ok',
+      annotations: filteredAnnotations
+    },
+    modelUsed: modelUsedDesc
+  };
 }
 
 // Main auto-annotation execution function
@@ -1093,6 +1332,18 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     label: r.label
   })).filter((c, idx, arr) => arr.findIndex(x => x.legend_entry === c.legend_entry) === idx);
 
+  // Standard electrical symbol classes for floor plans without pre-associated legend sheets
+  const standardElectricalClasses = [
+    { legend_entry: 'receptacle_duplex', label: 'Duplex 3-prong power outlet' },
+    { legend_entry: 'wall_fan', label: 'Wall fan' },
+    { legend_entry: 'air_conditioning_unit', label: 'Air conditioning unit' },
+    { legend_entry: 'circuit_homerun', label: 'Circuit homerun' },
+    { legend_entry: 'panelboard', label: 'Panelboard' }
+  ];
+  if (!sheet.associated_legend_ids || sheet.associated_legend_ids.length === 0 || sheet.id.startsWith('imported-') || candidateClasses.length === 0) {
+    candidateClasses.unshift(...standardElectricalClasses);
+  }
+
   // Generate overlapping tiles (1024x1024 with 200px overlap)
   const tiles = generateOverlappingTiles(sheet.width, sheet.height, 1024, 200);
 
@@ -1206,6 +1457,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     let modelUsed = lastUsedModel;
 
     const useLocalYolo = isYoloAvailable() && process.env.ENABLE_LOCAL_YOLO !== 'false' && !options.useCloudOnly;
+    const hasApiKey = !!process.env.GEMINI_API_KEY || !!process.env.GROQ_API_KEY;
 
     if (useLocalYolo) {
       console.log(`[Auto-Annotate] Running local YOLO candidate detection on ${tile.id}...`);
@@ -1213,26 +1465,25 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
       const yoloDetections = yoloRes.detections || [];
       console.log(`[Auto-Annotate] YOLO found ${yoloDetections.length} candidate symbols on ${tile.id} (0 tokens used).`);
 
-      if (yoloDetections.length === 0) {
-        // Empty tile: 0 detections, skip API call completely (100% tokens saved)
-        console.log(`[Auto-Annotate] Skipping API call for empty tile ${tile.id} (100% tokens saved).`);
+      if (yoloDetections.length === 0 && (!hasApiKey || options.useYoloOnly)) {
+        // Empty tile in YOLO-only mode or without API keys: skip API call completely
+        console.log(`[Auto-Annotate] Skipping empty tile ${tile.id} (YOLO-only mode).`);
         continue;
       }
 
-      const hasApiKey = !!process.env.GEMINI_API_KEY || !!process.env.GROQ_API_KEY;
       if (hasApiKey && !options.useYoloOnly) {
-        console.log(`[Auto-Annotate] Sending ${yoloDetections.length} YOLO candidates to API improver on ${tile.id}...`);
+        console.log(`[Auto-Annotate] Running AI symbol detector & arbiter (Gemini / Qwen) on ${tile.id} with ${yoloDetections.length} YOLO candidate hints...`);
         try {
           const improved = await improveDetectionsWithApi(targetBase64, tile, yoloDetections, candidateClasses, sheetId, options);
           parsedAnnotations = improved.parsedResponse?.annotations || [];
           modelUsed = improved.modelUsed;
-          console.log(`[Auto-Annotate] API improver verified ${parsedAnnotations.length} symbols on ${tile.id} with minimal tokens.`);
+          console.log(`[Auto-Annotate] AI symbol detector verified & decided ${parsedAnnotations.length} symbols on ${tile.id}.`);
         } catch (apiErr) {
-          console.warn(`[Auto-Annotate] API improver notice on ${tile.id} (${apiErr.message}). Gracefully falling back to saved YOLO detections.`);
+          console.warn(`[Auto-Annotate] AI symbol detector notice on ${tile.id} (${apiErr.message}). Gracefully falling back to saved YOLO detections.`);
           parsedAnnotations = yoloDetections.map(d => ({
             reference_id: null,
             legend_entry: null,
-            label: d.label,
+            label: normalizeSymbolLabel(d.label),
             layer: 'symbols',
             box_2d: d.box_2d,
             match_quality: d.confidence >= 0.5 ? 'strong' : 'tentative',
@@ -1246,7 +1497,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
         parsedAnnotations = yoloDetections.map(d => ({
           reference_id: null,
           legend_entry: null,
-          label: d.label,
+          label: normalizeSymbolLabel(d.label),
           layer: 'symbols',
           box_2d: d.box_2d,
           match_quality: d.confidence >= 0.5 ? 'strong' : 'tentative',
@@ -1254,6 +1505,18 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
           truncated: false
         }));
         modelUsed = `local/${yoloRes.model || 'ved-symbols'}`;
+      }
+    } else if (hasApiKey && !options.useYoloOnly) {
+      console.log(`[Auto-Annotate] Running AI symbol detector & arbiter (Gemini / Qwen) on ${tile.id}...`);
+      try {
+        const improved = await improveDetectionsWithApi(targetBase64, tile, [], candidateClasses, sheetId, options);
+        parsedAnnotations = improved.parsedResponse?.annotations || [];
+        modelUsed = improved.modelUsed;
+      } catch (err) {
+        console.warn(`[Auto-Annotate] AI detector notice on ${tile.id} (${err.message}). Falling back to multi-provider.`);
+        const { parsedResponse, modelUsed: mUsed } = await callMultiProviderWithModelHopping(requestContext, tile.id, options);
+        modelUsed = mUsed;
+        parsedAnnotations = parsedResponse.annotations || [];
       }
     } else {
       const { parsedResponse, modelUsed: mUsed } = await callMultiProviderWithModelHopping(requestContext, tile.id, options);
@@ -1291,6 +1554,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
       const sheetPixels = convertTileBoxToSheetPixels([ymin, xmin, ymax, xmax], tile);
       rawTileProposals.push({
         ...ann,
+        label: normalizeSymbolLabel(ann.label),
         detector_model: modelUsed,
         sheet_pixels: sheetPixels,
         tile_id: tile.id
@@ -1320,7 +1584,19 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     if (isExisting) continue;
 
     // Self-deduplication against newly merged proposals
-    const duplicateIdx = mergedProposals.findIndex(m => computeIoU(b1, m.sheet_pixels) > 0.45 || computeContainment(b1, m.sheet_pixels) > 0.85);
+    const duplicateIdx = mergedProposals.findIndex(m => {
+      const iou = computeIoU(b1, m.sheet_pixels);
+      const cont = computeContainment(b1, m.sheet_pixels);
+      if (iou > 0.40 || cont > 0.80) return true;
+      if (m.label === prop.label) {
+        const c1x = (b1[0] + b1[2]) / 2;
+        const c1y = (b1[1] + b1[3]) / 2;
+        const c2x = (m.sheet_pixels[0] + m.sheet_pixels[2]) / 2;
+        const c2y = (m.sheet_pixels[1] + m.sheet_pixels[3]) / 2;
+        if (Math.hypot(c1x - c2x, c1y - c2y) < 25) return true;
+      }
+      return false;
+    });
     if (duplicateIdx >= 0) {
       const existing = mergedProposals[duplicateIdx];
       // Keep complete / non-truncated over truncated
@@ -1348,13 +1624,22 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     generatedIds.add(uid);
 
     // Lookup legend entry provenance for cross-group compliance
+    let legendEntry = prop.legend_entry || null;
+    if (!legendEntry) {
+      if (prop.label === 'Duplex 3-prong power outlet') legendEntry = 'receptacle_duplex';
+      else if (prop.label === 'Wall fan') legendEntry = 'wall_fan';
+      else if (prop.label === 'Air conditioning unit') legendEntry = 'air_conditioning_unit';
+      else if (prop.label === 'Circuit homerun') legendEntry = 'circuit_homerun';
+      else if (prop.label === 'Panelboard') legendEntry = 'panelboard';
+    }
+
     let sourceSheet = null;
-    if (prop.legend_entry) {
-      sourceSheet = ref.sheets.find(s => (s.annotations || []).some(a => a.layer === 'legend' && a.legend_entry === prop.legend_entry));
+    if (legendEntry) {
+      sourceSheet = ref.sheets.find(s => (s.annotations || []).some(a => a.layer === 'legend' && a.legend_entry === legendEntry));
     }
     const isAssociated = !sourceSheet || (sheet.associated_legend_ids || []).includes(sourceSheet.id) || sheet.id === sourceSheet.id;
     const legendScope = isAssociated ? 'group' : 'cross_group';
-    const classState = prop.legend_entry ? (isAssociated ? 'proposed_legend_mapping' : 'cross_group_candidate') : 'unresolved';
+    const classState = legendEntry ? (isAssociated ? 'proposed_legend_mapping' : 'cross_group_candidate') : 'unresolved';
     const legendSource = (!isAssociated && sourceSheet) ? {
       sheet_id: sourceSheet.id,
       source_sha256: sourceSheet.sha256,
@@ -1366,7 +1651,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
       layer: prop.layer || 'symbols',
       label: prop.label || 'Candidate device',
       geometry: geometry,
-      legend_entry: prop.legend_entry || null,
+      legend_entry: legendEntry,
       legend_scope: legendScope,
       legend_source: legendSource,
       review_state: 'needs_review',

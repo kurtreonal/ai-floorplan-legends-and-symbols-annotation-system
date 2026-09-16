@@ -248,7 +248,8 @@ const server = http.createServer((req, res) => {
         }
 
         console.log(`[Auto-Annotate] Received request for sheet: ${sheetId}`);
-        const result = await runAutoAnnotation(sheetId, currentAnnotations, options, sheetMeta);
+        const annotateEngine = (delete require.cache[require.resolve('./auto-annotate.cjs')], require('./auto-annotate.cjs'));
+        const result = await annotateEngine.runAutoAnnotation(sheetId, currentAnnotations, options, sheetMeta);
         console.log(`[Auto-Annotate] Generated ${result.annotations?.length || 0} proposals for ${sheetId}`);
         sendJson(res, 200, result);
       } catch (error) {
