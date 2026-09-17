@@ -33,8 +33,39 @@
   };
  const payload=()=>({schema:'ved-editable-review-v2',created_at:new Date().toISOString(),training_approved:false,coordinate_system:'per_sheet_pixel_frame',baseline_revision:'expanded-review-2026-09-09',decisions:C.clone(decisions),legend_colors:C.clone(legendColors),sheets:D.sheets.map(s=>({id:s.id,source_sha256:s.sha256,width:s.width,height:s.height,coordinate_frame:s.coordinate_frame||'original_image_pixels',original_source_sha256:s.original_source_sha256||s.sha256,pdf_page:s.pdf_page||null,training_eligible:false,annotations:C.clone(s.annotations)}))});
   const storageKey=()=> 'ved-editable-review-v2:'+D.sheets.map(s=>s.sha256).join(':');
-  function persist(){try{localStorage.setItem(storageKey(),JSON.stringify(payload()));}catch{}}
-  function restoreDraft(){try{const raw=localStorage.getItem(storageKey());if(!raw)return false;const saved=JSON.parse(raw),upgraded=C.upgradeReview(saved,baseline);for(const sheet of upgraded.sheets){const target=D.sheets.find(s=>s.id===sheet.id);if(target)target.annotations=C.clone(sheet.annotations);}for(const key of Object.keys(decisions))delete decisions[key];Object.assign(decisions,upgraded.decisions||{});for(const key of Object.keys(legendColors))delete legendColors[key];Object.assign(legendColors,upgraded.legend_colors||{});return true;}catch(error){console.warn('Saved review could not be restored.',error);return false;}}
+  function persist(){
+    try{localStorage.setItem(storageKey(),JSON.stringify(payload()));}catch{}
+    if(window.VEDSessionStore){
+      window.VEDSessionStore.scheduleAutoSave(payload);
+    }
+  }
+  function applyRestoredReview(saved){
+    try{
+      const upgraded=C.upgradeReview(saved,baseline);
+      for(const sheet of upgraded.sheets){
+        const target=D.sheets.find(s=>s.id===sheet.id);
+        if(target)target.annotations=C.clone(sheet.annotations);
+      }
+      for(const key of Object.keys(decisions))delete decisions[key];
+      Object.assign(decisions,upgraded.decisions||{});
+      for(const key of Object.keys(legendColors))delete legendColors[key];
+      Object.assign(legendColors,upgraded.legend_colors||{});
+      return true;
+    }catch(error){
+      console.warn('Saved review could not be restored.',error);
+      return false;
+    }
+  }
+  function restoreDraft(){
+    try{
+      const raw=localStorage.getItem(storageKey());
+      if(!raw)return false;
+      return applyRestoredReview(JSON.parse(raw));
+    }catch(error){
+      console.warn('Saved review could not be restored.',error);
+      return false;
+    }
+  }
  function updateHistoryButtons(){const u=$('undo'),r=$('redo');if(!u||!r)return;u.disabled=!history.some(h=>h.id===current?.id);r.disabled=!future.some(h=>h.id===current?.id);}
  function checkpoint(){history.push({id:current.id,annotations:C.clone(current.annotations),view:[...view],selected,multi:new Set(multi)});if(history.length>100)history.shift();future.length=0;updateHistoryButtons();}
  function selectedAnnotation(){return current?.annotations.find(a=>a.id===selected);}
@@ -782,6 +813,16 @@
   window.populateLegendDropdowns=populateLegendDropdowns;
   window.handleCorrectedAction=handleCorrectedAction;
  $('help-btn')?.addEventListener('click',()=>toggleHelp(true));$('help-close')?.addEventListener('click',()=>toggleHelp(false));$('help-overlay')?.addEventListener('click',event=>{if(event.target===$('help-overlay'))toggleHelp(false);});$('import')?.addEventListener('change',event=>{const file=event.target.files[0];if(file)restoreReview(file);event.target.value='';});
+  $('btn-save-session')?.addEventListener('click', async () => {
+    status('Saving current session...');
+    if (window.VEDSessionStore) {
+      await window.VEDSessionStore.performSave(payload());
+      status('Session saved to disk and browser storage. Progress is safe.');
+    } else {
+      persist();
+      status('Session saved to local storage.');
+    }
+  });
  window.reviewWorkspace.setTool=setTool;
  window.reviewWorkspace.finishDrawing=finishDrawing;
  window.reviewWorkspace.cancelDrawing=cancelDrawing;
@@ -795,4 +836,22 @@
  };
  $('finish').onclick=()=>finishDrawing();
   window.reviewWorkspace.zoomAt=(factor,x,y)=>zoom(factor,x,y);const restoredDraft=restoreDraft();applyTheme(document.documentElement.dataset.theme||'light');groupChanged();renderCoverage();if(restoredDraft)status('Restored the saved review, including imported labels and legend links.');
+  if(window.VEDSessionStore){
+    window.VEDSessionStore.setPayloadGetter(payload);
+    window.VEDSessionStore.restoreBestSession(baseline).then(best=>{
+      if(best && best.data){
+        const ok = applyRestoredReview(best.data);
+        if(ok){
+          groupChanged();
+          populateLegendDropdowns();
+          renderCoverage();
+          renderMarks();
+          const timeStr = best.saved_at ? new Date(best.saved_at).toLocaleTimeString() : '';
+          status(`Restored saved session from ${timeStr || 'previous work'}. All annotations and progress were preserved.`);
+        }
+      }
+    }).catch(e=>{
+      console.warn('[SessionStore] Session restoration notice:', e.message);
+    });
+  }
 })();

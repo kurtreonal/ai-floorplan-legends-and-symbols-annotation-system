@@ -6,6 +6,8 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const url = require('url');
+const crypto = require('crypto');
+
 
 // Automatically load .env file if present (supported natively in Node 20.6+)
 const envPath = path.join(__dirname, '.env');
@@ -108,11 +110,13 @@ const server = http.createServer((req, res) => {
     const hasGeminiKey = !!process.env.GEMINI_API_KEY;
     const hasGroqKey = !!process.env.GROQ_API_KEY;
     const hasYolo = typeof isYoloAvailable === 'function' && isYoloAvailable();
+    const sessionPath = path.join(ROOT_DIR, 'data', 'saved-session.json');
     sendJson(res, 200, {
       status: 'online',
       has_gemini_api_key: hasGeminiKey,
       has_groq_api_key: hasGroqKey,
       has_local_yolo: hasYolo,
+      has_saved_session: fs.existsSync(sessionPath),
       primary_detector: hasYolo ? 'local_yolo (VED custom symbols)' : 'cloud fallback (custom YOLO unavailable)',
       yolo_models: hasYolo ? [path.basename(getYoloModelPath())] : [],
       model: 'gemini-3.8-flash',
@@ -122,6 +126,100 @@ const server = http.createServer((req, res) => {
       workspace: 'VED-floor-plan-review-portable-2.0'
     });
     return;
+  }
+
+  // API Saved Session endpoints (Automatic progress preservation)
+  const sessionPath = path.join(ROOT_DIR, 'data', 'saved-session.json');
+  const sessionBackupPath = path.join(ROOT_DIR, 'data', 'saved-session.backup.json');
+
+  if (pathname === '/api/session') {
+    if (req.method === 'GET') {
+      if (fs.existsSync(sessionPath)) {
+        try {
+          const stats = fs.statSync(sessionPath);
+          const raw = fs.readFileSync(sessionPath, 'utf8');
+          const data = JSON.parse(raw);
+          sendJson(res, 200, {
+            status: 'success',
+            saved_at: stats.mtime.toISOString(),
+            session: data
+          });
+          return;
+        } catch (e) {
+          sendJson(res, 500, { status: 'error', error: 'Failed to read saved session: ' + e.message });
+          return;
+        }
+      }
+      sendJson(res, 200, { status: 'none', message: 'No saved session found.' });
+      return;
+    }
+
+    if (req.method === 'POST') {
+      let body = '';
+      req.on('data', chunk => {
+        body += chunk;
+        if (body.length > 50 * 1024 * 1024) {
+          res.writeHead(413, { 'Content-Type': 'text/plain' });
+          res.end('Payload Too Large');
+          req.destroy();
+        }
+      });
+
+      req.on('end', () => {
+        try {
+          const payload = JSON.parse(body || '{}');
+          const sessionData = payload.session || payload;
+          if (!sessionData || !Array.isArray(sessionData.sheets)) {
+            sendJson(res, 400, { status: 'error', error: 'Invalid session payload. Missing sheets array.' });
+            return;
+          }
+
+          const dataDir = path.join(ROOT_DIR, 'data');
+          if (!fs.existsSync(dataDir)) {
+            try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
+          }
+
+          // Atomic write: write to temp file first, then rename
+          const tmpPath = path.join(dataDir, `saved-session-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`);
+          fs.writeFileSync(tmpPath, JSON.stringify(sessionData, null, 2), 'utf8');
+
+          // Keep prior session as backup if it exists
+          if (fs.existsSync(sessionPath)) {
+            try { fs.copyFileSync(sessionPath, sessionBackupPath); } catch {}
+          }
+
+          fs.renameSync(tmpPath, sessionPath);
+          const totalAnnotations = sessionData.sheets.reduce((sum, s) => sum + (s.annotations?.length || 0), 0);
+
+          sendJson(res, 200, {
+            status: 'success',
+            message: 'Session saved successfully.',
+            saved_at: new Date().toISOString(),
+            sheets_count: sessionData.sheets.length,
+            annotations_count: totalAnnotations
+          });
+        } catch (e) {
+          console.error('[Session Save] Error saving session:', e);
+          sendJson(res, 500, { status: 'error', error: e.message });
+        }
+      });
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      try {
+        if (fs.existsSync(sessionPath)) {
+          fs.unlinkSync(sessionPath);
+        }
+        if (fs.existsSync(sessionBackupPath)) {
+          fs.unlinkSync(sessionBackupPath);
+        }
+        sendJson(res, 200, { status: 'success', message: 'Saved session cleared.' });
+      } catch (e) {
+        sendJson(res, 500, { status: 'error', error: e.message });
+      }
+      return;
+    }
   }
 
   // API Auto-Annotation endpoint
@@ -150,7 +248,8 @@ const server = http.createServer((req, res) => {
         }
 
         console.log(`[Auto-Annotate] Received request for sheet: ${sheetId}`);
-        const result = await runAutoAnnotation(sheetId, currentAnnotations, options, sheetMeta);
+        const annotateEngine = (delete require.cache[require.resolve('./auto-annotate.cjs')], require('./auto-annotate.cjs'));
+        const result = await annotateEngine.runAutoAnnotation(sheetId, currentAnnotations, options, sheetMeta);
         console.log(`[Auto-Annotate] Generated ${result.annotations?.length || 0} proposals for ${sheetId}`);
         sendJson(res, 200, result);
       } catch (error) {
