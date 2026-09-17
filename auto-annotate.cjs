@@ -10,7 +10,7 @@ const child_process = require('child_process');
 
 // Automatically load .env file if present
 const envPath = path.join(__dirname, '.env');
-if (typeof process.loadEnvFile === 'function' && fs.existsSync(envPath)) {
+if (!process.env.DISABLE_ENV_LOAD && typeof process.loadEnvFile === 'function' && fs.existsSync(envPath)) {
   try { process.loadEnvFile(envPath); } catch {}
 }
 
@@ -896,17 +896,20 @@ async function improveDetectionsWithApi(targetBase64, tile, yoloDetections = [],
 
   const systemInstruction = `You are an expert electrical blueprint symbol detector and arbiter.
 Your mission is to detect all genuine electrical symbols in this floor plan tile image with normalized 0-1000 bounding boxes [ymin, xmin, ymax, xmax].
-Important electrical symbol classes to detect:
-1. "receptacle_duplex": Duplex convenience outlet (circle with 2 parallel prongs or hash marks crossing through it, labeled 'C.O.'). Detect every single C.O. outlet!
+
+IMPORTANT ELECTRICAL SYMBOL CLASSES TO DETECT:
+1. "receptacle_duplex": Duplex convenience outlet (small circle with 2 prongs or hash marks crossing through it, or labeled 'C.O.'). Detect every single C.O. outlet!
 2. "wall_fan": Wall fan (circle containing 'WF' letters). Detect all WF circles!
-3. "air_conditioning_unit": Air conditioning unit (circle containing a solid black triangular pointer/wedge, labeled '1.50 ACU' or 'ACU').
-4. "circuit_homerun": True circuit homerun (thick curved arc terminating directly with an arrow or ending at a panelboard tag circle like '4 / MDP' or '2 / MDP').
+3. "air_conditioning_unit": Air conditioning unit (circle containing a solid black triangular wedge pointer, labeled '1.50 ACU' or 'ACU').
+4. "circuit_homerun": True circuit homerun (thick curved arc terminating directly at a panelboard tag circle like '4 / MDP' or '2 / MDP').
 5. "panelboard": Distribution panel tag circle (such as '4 / MDP' or '2 / MDP').
 
 STRICT REJECTION RULES - Decide what is NOT an electrical symbol:
 - Architectural door swings (quarter-circle arcs with radial door lines) are NOT circuit homeruns. DISCARD them!
 - Dimension lines, wall lines, room boundary markers, and grid numbers (like 1, 2, 3, 4) MUST NOT be detected as symbols.
-- If a candidate symbol proposed by YOLO is a door swing, wall junction, or text, DISCARD it.
+- Title block text, sheet scales (e.g. 'SCALE 1:75'), and drawing titles (e.g. 'GROUND FLOOR POWER LAYOUT', '1/E-8') MUST NOT be detected.
+- Never detect empty margins or white space outside the building walls.
+- Bounding boxes must tightly fit around each symbol glyph (~20-35 pixels).
 
 Return strictly valid JSON:
 {"status":"ok","annotations":[{"label":"string","legend_entry":"string or null","layer":"symbols","box_2d":[ymin,xmin,ymax,xmax],"match_quality":"strong"|"tentative","evidence":"string","truncated":false}]}`;
@@ -919,8 +922,8 @@ Legend catalog definitions:
 ${JSON.stringify((candidateClasses || []).slice(0, 30), null, 2)}
 
 Instructions:
-1. Detect all visible electrical symbols on this tile: specifically all C.O. duplex convenience outlets, all WF wall fans, all 1.50 ACU air conditioners, all panelboard circles, and true circuit homeruns.
-2. Verify or prune YOLO candidates: DISCARD candidates that are door swings, architectural wall lines, dimension lines, or letters/numbers.
+1. Detect all visible electrical symbols on this tile within the building interior walls: specifically all C.O. duplex convenience outlets, all WF wall fans, all 1.50 ACU air conditioners, all panelboard circles, and true circuit homeruns.
+2. DISCARD candidates in margins (grid bubbles 1, 2, 3, 4, dimension lines), door swings, wall lines, and title block text ('GROUND FLOOR POWER LAYOUT', '1/E-8', 'SCALE 1:75').
 3. Classify ONLY true curved arcs connecting to panelboard circles as circuit_homerun. Reject door swings.
 4. Tightly fit [ymin, xmin, ymax, xmax] around the electrical symbol glyph.
 Output strictly valid JSON.`;
@@ -938,7 +941,13 @@ Output strictly valid JSON.`;
     if (!geminiKey || !geminiKey.trim() || options.useGroqOnly) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.8-flash'];
+    const modelsToTry = [
+      'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-3.5-flash-lite',
+      'gemini-3.6-flash',
+      'gemini-3.8-flash'
+    ];
     try {
       for (const model of modelsToTry) {
         try {
@@ -1016,16 +1025,21 @@ Output strictly valid JSON.`;
 
       const groqModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
       const groqSystemPrompt = `You are an expert electrical blueprint symbol detector.
-Detect all visible electrical symbols on this tile.
+Detect all visible electrical symbols on this tile within the building interior walls.
 Important classes:
 - "receptacle_duplex": All C.O. duplex convenience outlets (circle with 2 parallel prongs or hash marks).
 - "wall_fan": All WF circles (circle with 'WF' letters).
 - "air_conditioning_unit": All ACU air conditioners (circle with solid black triangle pointer).
 - "panelboard": MDP panel circles (e.g. '4 / MDP', '2 / MDP').
 - "circuit_homerun": True curved homerun arcs terminating at panel circles. (Do NOT detect door swings or wall lines!).
+
+STRICT EXCLUSIONS:
+- Do NOT detect grid numbers (1, 2, 3, 4) or dimension lines in margins.
+- Do NOT detect title block text ('GROUND FLOOR POWER LAYOUT', '1/E-8', 'SCALE 1:75').
+- Do NOT detect door swings.
 Return strictly JSON: {"status":"ok","annotations":[{"label":"string","layer":"symbols","box_2d":[ymin,xmin,ymax,xmax]}]}`;
 
-      const groqUserPrompt = `Candidate hints: ${JSON.stringify(priors.map(p => ({ label: p.tentative_label, box_2d: p.box_2d })))}\nDetect every C.O. duplex outlet, WF wall fan, 1.50 ACU, and true homerun arc. Discard door swings and text.`;
+      const groqUserPrompt = `Candidate hints: ${JSON.stringify(priors.map(p => ({ label: p.tentative_label, box_2d: p.box_2d })))}\nDetect every C.O. duplex outlet, WF wall fan, 1.50 ACU, and true homerun arc. Discard door swings, title text, and margin markers.`;
 
       const groqPayload = {
         model: groqModel,
@@ -1118,13 +1132,18 @@ Return strictly JSON: {"status":"ok","annotations":[{"label":"string","layer":"s
     if (matchIdx >= 0) {
       rawList[matchIdx].verified_by.push(secondaryModel);
       rawList[matchIdx].match_quality = 'strong';
-    } else {
-      rawList.push({
-        ...sAnn,
-        label: sNorm,
-        verified_by: [secondaryModel],
-        match_quality: 'tentative'
-      });
+    } else if (!geminiResult) {
+      // If Gemini was unavailable, accept secondary proposals only if inside building interior
+      const [ymin, xmin, ymax, xmax] = box;
+      const isMargin = xmin < 120 || xmax > 970 || ymin < 50 || ymax > 870;
+      if (!isMargin) {
+        rawList.push({
+          ...sAnn,
+          label: sNorm,
+          verified_by: [secondaryModel],
+          match_quality: 'tentative'
+        });
+      }
     }
   }
 
@@ -1562,15 +1581,61 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     }
   }
 
+  // Extract raw image pixels for ink verification (reject hallucinations in white space)
+  let sheetRawPixels = null;
+  try {
+    const { data, info } = await sharp(imageBuffer).raw().toBuffer({ resolveWithObject: true });
+    sheetRawPixels = { data, width: info.width, height: info.height, channels: info.channels };
+  } catch {}
+
+  function hasInkInBbox(b, minDark = 4) {
+    if (!sheetRawPixels) return true;
+    const { data, width, height, channels } = sheetRawPixels;
+    const xStart = Math.max(0, Math.min(width - 1, Math.round(b[0])));
+    const yStart = Math.max(0, Math.min(height - 1, Math.round(b[1])));
+    const xEnd = Math.max(0, Math.min(width - 1, Math.round(b[2])));
+    const yEnd = Math.max(0, Math.min(height - 1, Math.round(b[3])));
+    let dark = 0;
+    for (let y = yStart; y <= yEnd; y++) {
+      for (let x = xStart; x <= xEnd; x++) {
+        const idx = (y * width + x) * channels;
+        const brightness = (data[idx] + data[idx + 1] + data[idx + 2]) / 3;
+        if (brightness < 160) {
+          dark++;
+          if (dark >= minDark) return true;
+        }
+      }
+    }
+    return dark >= minDark;
+  }
+
   // Merge overlapping tile predictions and deduplicate
   const mergedProposals = [];
   for (const prop of rawTileProposals) {
     const b1 = prop.sheet_pixels;
+    const w = b1[2] - b1[0];
+    const h = b1[3] - b1[1];
+    const midX = (b1[0] + b1[2]) / 2;
+    const midY = (b1[1] + b1[3]) / 2;
+
+    // Reject outer margins (grid bubbles 1, 2, 3, 4 on left, dimension lines, sheet borders)
+    // and bottom title block area ('GROUND FLOOR POWER LAYOUT', scale 1:75, signatures)
+    if (midX < sheet.width * 0.12 || midY > sheet.height * 0.86 || midY < sheet.height * 0.04 || midX > sheet.width * 0.98) {
+      continue;
+    }
+
+    // Reject bounding boxes on pure white space (no drawing ink)
+    if (!hasInkInBbox(b1)) {
+      continue;
+    }
+
+    // Dimension sanity check for electrical devices
+    if (w < 8 || h < 8 || w > 140 || h > 140) {
+      continue;
+    }
 
     // Check against excluded regions
     const insideExcluded = excludedRegions.some(e => {
-      const midX = (b1[0] + b1[2]) / 2;
-      const midY = (b1[1] + b1[3]) / 2;
       return midX >= e[0] && midX <= e[2] && midY >= e[1] && midY <= e[3];
     });
     if (insideExcluded) continue;
@@ -1587,13 +1652,13 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     const duplicateIdx = mergedProposals.findIndex(m => {
       const iou = computeIoU(b1, m.sheet_pixels);
       const cont = computeContainment(b1, m.sheet_pixels);
-      if (iou > 0.40 || cont > 0.80) return true;
+      if (iou > 0.35 || cont > 0.75) return true;
       if (m.label === prop.label) {
         const c1x = (b1[0] + b1[2]) / 2;
         const c1y = (b1[1] + b1[3]) / 2;
         const c2x = (m.sheet_pixels[0] + m.sheet_pixels[2]) / 2;
         const c2y = (m.sheet_pixels[1] + m.sheet_pixels[3]) / 2;
-        if (Math.hypot(c1x - c2x, c1y - c2y) < 25) return true;
+        if (Math.hypot(c1x - c2x, c1y - c2y) < 22) return true;
       }
       return false;
     });

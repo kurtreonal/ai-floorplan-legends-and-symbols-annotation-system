@@ -35,6 +35,7 @@ server.listen(TEST_PORT, '127.0.0.1', async () => {
     const origKey = process.env.GEMINI_API_KEY;
     const origGroq = process.env.GROQ_API_KEY;
     const origYolo = process.env.ENABLE_LOCAL_YOLO;
+    process.env.DISABLE_ENV_LOAD = 'true';
     delete process.env.GEMINI_API_KEY;
     delete process.env.GROQ_API_KEY;
     process.env.ENABLE_LOCAL_YOLO = 'false';
@@ -50,6 +51,7 @@ server.listen(TEST_PORT, '127.0.0.1', async () => {
         throw new Error(`Expected api_key_missing, got ${truthfulData.status}`);
       }
     } finally {
+      delete process.env.DISABLE_ENV_LOAD;
       if (origKey) process.env.GEMINI_API_KEY = origKey;
       if (origGroq) process.env.GROQ_API_KEY = origGroq;
       if (origYolo !== undefined) process.env.ENABLE_LOCAL_YOLO = origYolo;
