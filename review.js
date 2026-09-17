@@ -754,17 +754,27 @@
     sel.replaceChildren(new Option('Unresolved / no clear legend match',''));
 
     const relevantGroups=relevantGroupsForSheet(current);
-    const entries=registry?registry.list(term,{groups:relevantGroups}):[];
+    const ranked=e=>{
+      if(current&&registry.isUsedOn(e.key,current.id))return 0;
+      if(e.groups&&Array.from(e.groups).some(g=>relevantGroups.has(g)))return 1;
+      return 2;
+    };
+    const entries=registry?registry.list(term).sort((a,b)=>ranked(a)-ranked(b)||a.label.localeCompare(b.label)):[];
     for(const e of entries){
+      const onSheet=current&&registry.isUsedOn(e.key,current.id);
+      const inSelectedGroup=e.groups&&Array.from(e.groups).some(g=>relevantGroups.has(g));
       const drawings=e.sheetIds?e.sheetIds.size:0;
       const bits=[];
+      if(onSheet)bits.push('on this drawing');
+      else if(inSelectedGroup&&current?.group!=null)bits.push('Group '+current.group);
       if(drawings>1)bits.push(drawings+' drawings');
       if(e.usage)bits.push(e.usage+' placed');
       if(e.custom)bits.push('uploaded');
       const opt=new Option(e.label+(bits.length?'  ·  '+bits.join(' · '):''),e.key);
       opt.dataset.label=e.label;
       opt.dataset.universal='1';
-      if(current&&registry.isUsedOn(e.key,current.id))opt.dataset.onSheet='1';
+      if(onSheet)opt.dataset.onSheet='1';
+      if(inSelectedGroup)opt.dataset.selectedGroup='1';
       sel.append(opt);
     }
 
