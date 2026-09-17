@@ -24,16 +24,21 @@
 <div id="selection-banner" hidden></div>
 <div id="selected"><p>Select an annotation or draw a new one.</p></div>
 <div class="edit-fields"><label>Annotation type<select id="edit-layer"><option value="symbols">Symbol / homerun</option><option value="geometry">Wall / room / opening</option><option value="wiring">Observed wiring path</option><option value="text">Text / dimension</option><option value="unresolved">Unresolved area</option><option value="legend">Legend example</option><option value="regions">Drawing region</option><option value="ocr">OCR text</option></select></label>
-<label id="wall-type-field" hidden>Wall / opening type<select id="edit-wall-type">
-  <option value="">Not specified</option>
-  <option value="standard">Standard wall</option>
-  <option value="glass">Glass wall / partition</option>
-  <option value="partition">Partition (non-glass)</option>
-  <option value="fire_rated">Fire-rated wall</option>
-  <option value="curtain_wall">Curtain wall</option>
-  <option value="opening">Opening / doorway (no wall)</option>
-  <option value="other">Other (see label)</option>
- </select></label>
+<div id="wall-type-field" class="wall-type-field-group" hidden>
+  <label for="edit-wall-type">Wall / opening type</label>
+  <select id="edit-wall-type">
+    <option value="" data-desc="Select or click a wall type below to automatically assign its architectural description and label to the wall.">Not specified</option>
+    <option value="standard" data-desc="Standard masonry, concrete hollow block (CHB), or full-height structural wall partition">Standard wall</option>
+    <option value="glass" data-desc="Interior architectural glass wall, glazed storefront, or full-height glazed partition">Glass wall / partition</option>
+    <option value="partition" data-desc="Non-structural drywall, gypsum board, timber stud, or modular office partition">Partition (non-glass)</option>
+    <option value="fire_rated" data-desc="Fire-rated smoke barrier wall, 1-hour/2-hour fire-resistive assembly, or masonry firewall">Fire-rated wall</option>
+    <option value="curtain_wall" data-desc="Exterior non-load-bearing glazed curtain wall facade or structural glass envelope">Curtain wall</option>
+    <option value="opening" data-desc="Wall opening, passage, cased opening, or doorway boundary without a physical wall">Opening / doorway (no wall)</option>
+    <option value="other" data-desc="Special architectural wall, acoustic wall finish, decorative panel, or custom wall assembly">Other (custom wall)</option>
+  </select>
+  <div id="wall-type-desc" class="wall-type-desc-box" aria-live="polite">Click a wall type to assign its description and label to the selected wall.</div>
+  <div id="wall-type-chips" class="wall-type-chips" role="radiogroup" aria-label="Wall type options"></div>
+</div>
 <label>Legend class <small class="hint">shared across all drawings</small><input id="edit-class-search" placeholder="Search all legend symbols…" autocomplete="off"><select id="edit-class" size="1"></select></label>
 <label class="legend-color-field">Legend color<input id="edit-legend-color" type="color" aria-label="Color used for drawing this legend class" title="Every box, line, or boundary for this legend class uses this color" value="#1683ff"></label>
 <label>Label / readable text<input id="edit-label" maxlength="1000" placeholder="Choose a class or describe the visible mark"></label></div>

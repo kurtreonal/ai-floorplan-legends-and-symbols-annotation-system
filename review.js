@@ -15,7 +15,101 @@
  function colorForLegend(id){if(!id)return null;const key=legendKeyOf(id);if(!legendColors[key]){let h=0;for(let i=0;i<key.length;i++)h=(h*31+key.charCodeAt(i))>>>0;legendColors[key]=legendPalette[h%legendPalette.length];}return legendColors[key];}
  function setLegendColor(id,color){if(!id||!color)return;legendColors[legendKeyOf(id)]=color;persist();renderMarks();window.workspaceUI?.show(current);}
  function colorForAnnotation(a){return a.legend_entry?colorForLegend(a.legend_entry):(colors[a.layer]||'#1683ff');}
- const wallTypeLabels={standard:'Standard wall',glass:'Glass wall / partition',partition:'Partition (non-glass)',fire_rated:'Fire-rated wall',curtain_wall:'Curtain wall',opening:'Opening / doorway (no wall)',other:'Other'};
+  const wallTypeCatalog={
+    standard:{label:'Standard wall',description:'Standard masonry, concrete hollow block (CHB), or full-height structural wall partition',color:'#3b82f6'},
+    glass:{label:'Glass wall / partition',description:'Interior architectural glass wall, glazed storefront, or full-height glazed partition',color:'#06b6d4'},
+    partition:{label:'Partition (non-glass)',description:'Non-structural drywall, gypsum board, timber stud, or modular office partition',color:'#8b5cf6'},
+    fire_rated:{label:'Fire-rated wall',description:'Fire-rated smoke barrier wall, 1-hour/2-hour fire-resistive assembly, or masonry firewall',color:'#ef4444'},
+    curtain_wall:{label:'Curtain wall',description:'Exterior non-load-bearing glazed curtain wall facade or structural glass envelope',color:'#0ea5e9'},
+    opening:{label:'Opening / doorway (no wall)',description:'Wall opening, passage, cased opening, or doorway boundary without a physical wall',color:'#f59e0b'},
+    other:{label:'Other (custom wall)',description:'Special architectural wall, acoustic wall finish, decorative panel, or custom wall assembly',color:'#64748b'}
+  };
+  const wallTypeLabels=Object.fromEntries(Object.entries(wallTypeCatalog).map(([k,v])=>[k,v.label]));
+  function syncWallTypeUI(key){
+    const select=$('edit-wall-type');
+    if(select&&key!==undefined)select.value=key||'';
+    const chips=document.querySelectorAll('.wall-type-chip');
+    chips.forEach(c=>{
+      const isActive=Boolean(key&&c.dataset.key===key);
+      c.classList.toggle('active',isActive);
+      c.setAttribute('aria-checked',String(isActive));
+    });
+    const descBox=$('wall-type-desc');
+    if(descBox){
+      const def=key?wallTypeCatalog[key]:null;
+      if(def){
+        descBox.innerHTML=`<strong class="wall-desc-title">${def.label}</strong><span>${def.description}</span>`;
+      }else{
+        descBox.innerHTML='<span>Click or select a wall type below to automatically assign its architectural description and label to the wall.</span>';
+      }
+    }
+  }
+  function renderWallTypeChips(){
+    const host=$('wall-type-chips');
+    if(!host)return;
+    host.replaceChildren();
+    for(const [key,item] of Object.entries(wallTypeCatalog)){
+      const btn=document.createElement('button');
+      btn.type='button';
+      btn.className='wall-type-chip';
+      btn.dataset.key=key;
+      btn.setAttribute('role','radio');
+      btn.setAttribute('aria-checked','false');
+      btn.title=`${item.label}: ${item.description}`;
+      const titleSpan=document.createElement('span');
+      titleSpan.className='wall-type-chip-title';
+      const ind=document.createElement('span');
+      ind.className='wall-type-chip-indicator';
+      ind.style.backgroundColor=item.color;
+      titleSpan.append(ind,document.createTextNode(item.label));
+      const descSpan=document.createElement('span');
+      descSpan.className='wall-type-chip-desc';
+      descSpan.textContent=item.description;
+      btn.append(titleSpan,descSpan);
+      btn.onclick=e=>{
+        e.preventDefault();
+        applyWallType(key);
+      };
+      host.append(btn);
+    }
+  }
+  function applyWallType(key){
+    const def=wallTypeCatalog[key];
+    syncWallTypeUI(key);
+    if(!def){
+      if(key===''&&selected){
+        const targets=selectedAnnotations();
+        for(const a of targets){if(a.layer==='geometry')a.wall_type=null;}
+        persist();renderMarks();updateAnnotationList();describeSelection();
+      }
+      return;
+    }
+    const fullText=def.label+' - '+def.description;
+    $('edit-layer').value='geometry';
+    $('wall-type-field').hidden=false;
+    $('edit-wall-type').value=key;
+    $('edit-label').value=fullText;
+
+    const targets=selectedAnnotations();
+    if(targets.length){
+      checkpoint();
+      for(const a of targets){
+        preserve(a);
+        a.layer='geometry';
+        a.wall_type=key;
+        a.label=fullText;
+        a.note=def.description;
+        enabled.add('geometry');
+      }
+      persist();
+      renderMarks();
+      updateAnnotationList();
+      describeSelection();
+      status(`Applied wall type: ${def.label}. Description added to selected wall.`);
+    }else{
+      status(`Wall type: ${def.label} selected. Draw a wall or select one to apply.`);
+    }
+  }
   const status=(m,type)=>{
     const el=$('editor-status');
     if(!el)return;
@@ -379,10 +473,29 @@
     $('edit-class').value=legendKeyOf(a.legend_entry||a.legendKey)||'';
     $('edit-wall-type').value=a.wall_type||'';
     $('wall-type-field').hidden=a.layer!=='geometry';
+    syncWallTypeUI(a.wall_type);
     const c=$('edit-legend-color');
     if(c)c.value=colorForAnnotation(a);
   }
- function addGeometry(geometry){if(!C.validGeometry(geometry,current.width,current.height)){status('Draw a larger box, or add more points.');return;}const layer=$('edit-layer').value||'unresolved';checkpoint();const id=current.id+'-user-'+Date.now().toString(36);const annotation={id,layer,label:$('edit-label').value.trim()||'Unresolved annotation',geometry,connections:[],legend_entry:['symbols','wiring','text'].includes(layer)?($('edit-class').value||null):null,wall_type:layer==='geometry'?($('edit-wall-type').value||null):null,review_state:'manually_added',method:'human_manual_annotation',class_state:'unmapped',production_class_id:null,note:'User correction; dataset training approval remains pending.',created_at:new Date().toISOString()};current.annotations.push(annotation);if(annotation.geometry.type!=='bbox')linkConnections(annotation);selected=id;multi.clear();enabled.add(layer);persist();renderMarks();renderList();describeSelection();}
+  function addGeometry(geometry){
+    if(!C.validGeometry(geometry,current.width,current.height)){status('Draw a larger box, or add more points.');return;}
+    const layer=$('edit-layer').value||'unresolved';
+    checkpoint();
+    const id=current.id+'-user-'+Date.now().toString(36);
+    const wallType=layer==='geometry'?($('edit-wall-type').value||null):null;
+    const wallDef=wallType?wallTypeCatalog[wallType]:null;
+    const defaultNote=wallDef?wallDef.description:'User correction; dataset training approval remains pending.';
+    const annotation={id,layer,label:$('edit-label').value.trim()||'Unresolved annotation',geometry,connections:[],legend_entry:['symbols','wiring','text'].includes(layer)?($('edit-class').value||null):null,wall_type:wallType,review_state:'manually_added',method:'human_manual_annotation',class_state:'unmapped',production_class_id:null,note:defaultNote,created_at:new Date().toISOString()};
+    current.annotations.push(annotation);
+    if(annotation.geometry.type!=='bbox')linkConnections(annotation);
+    selected=id;
+    multi.clear();
+    enabled.add(layer);
+    persist();
+    renderMarks();
+    renderList();
+    describeSelection();
+  }
  function preview(cursorPoint){
   if(!draftLayer)return;
   draftLayer.destroyChildren();
@@ -793,10 +906,10 @@
   $('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;
   for(const [index,text] of ['Pointer - select and pan','Draw box','Draw line','Draw boundary'].entries())if($('tool').options[index])$('tool').options[index].text=text;
   for(const g of [...new Set(D.sheets.map(r=>r.group))])$('group').append(new Option('Group '+g,D.sheets.find(s=>s.group===g)?.group));for(const layer of Object.keys(colors)){const l=document.createElement('label'),i=document.createElement('input');i.type='checkbox';i.checked=enabled.has(layer);i.dataset.layer=layer;i.onchange=()=>{i.checked?enabled.add(layer):enabled.delete(layer);renderMarks();updateAnnotationList();};l.append(i,document.createTextNode(layer));l.style.color=colors[layer];$('layers').append(l);}
-  beginStage();populateLegendDropdowns();$('group').onchange=groupChanged;$('sheet').onchange=load;$('fit').onclick=fit;$('zin').onclick=()=>zoom(.65);$('zout').onclick=()=>zoom(1.5);$('focus').onclick=focusSelected;$('rotate').onclick=rotateView;$('show-overlays').onchange=renderMarks;
+  beginStage();populateLegendDropdowns();renderWallTypeChips();syncWallTypeUI('');$('group').onchange=groupChanged;$('sheet').onchange=load;$('fit').onclick=fit;$('zin').onclick=()=>zoom(.65);$('zout').onclick=()=>zoom(1.5);$('focus').onclick=focusSelected;$('rotate').onclick=rotateView;$('show-overlays').onchange=renderMarks;
   $('annotation-search').oninput=updateAnnotationList;
   $('edit-class-search')?.addEventListener('input',()=>populateLegendDropdowns($('edit-class-search').value));
-  $('tool').onchange=()=>setTool($('tool').value);$('edit-layer').onchange=()=>{$('wall-type-field').hidden=$('edit-layer').value!=='geometry';};$('edit-class').onchange=()=>{const o=$('edit-class').selectedOptions[0];if(o?.dataset?.label)$('edit-label').value=o.dataset.label;const c=$('edit-legend-color');if(c)c.value=colorForLegend($('edit-class').value)||'#1683ff';if($('edit-class').value)highlightLegendMatches($('edit-class').value);};$('edit-legend-color')?.addEventListener('input',()=>{const id=$('edit-class').value;if(!id){status('Choose a legend class first, then pick its color.');return;}setLegendColor(id,$('edit-legend-color').value);});  $('finish').onclick=()=>finishDrawing();$('cancel').onclick=()=>{cancelDrawing();status('Drawing cancelled.');};$('decision').onchange=save;$('notes').oninput=save;$('theme-toggle').onclick=toggleTheme;$('attach-image').onchange=e=>{const file=e.target.files[0];if(!file)return;attachedImage=null;if(window.reviewWorkspace?.importFloorPlan){window.reviewWorkspace.importFloorPlan(file);}e.target.value='';};
+  $('tool').onchange=()=>setTool($('tool').value);$('edit-layer').onchange=()=>{const isGeom=$('edit-layer').value==='geometry';$('wall-type-field').hidden=!isGeom;if(isGeom)syncWallTypeUI($('edit-wall-type').value);};$('edit-wall-type').onchange=()=>applyWallType($('edit-wall-type').value);$('edit-class').onchange=()=>{const o=$('edit-class').selectedOptions[0];if(o?.dataset?.label)$('edit-label').value=o.dataset.label;const c=$('edit-legend-color');if(c)c.value=colorForLegend($('edit-class').value)||'#1683ff';if($('edit-class').value)highlightLegendMatches($('edit-class').value);};$('edit-legend-color')?.addEventListener('input',()=>{const id=$('edit-class').value;if(!id){status('Choose a legend class first, then pick its color.');return;}setLegendColor(id,$('edit-legend-color').value);});  $('finish').onclick=()=>finishDrawing();$('cancel').onclick=()=>{cancelDrawing();status('Drawing cancelled.');};$('decision').onchange=save;$('notes').oninput=save;$('theme-toggle').onclick=toggleTheme;$('attach-image').onchange=e=>{const file=e.target.files[0];if(!file)return;attachedImage=null;if(window.reviewWorkspace?.importFloorPlan){window.reviewWorkspace.importFloorPlan(file);}e.target.value='';};
   $('update').onclick=()=>{
     const targets=selectedAnnotations();
     if(!targets.length){status('Select at least one annotation first.');return;}
@@ -808,11 +921,15 @@
       a.legend_entry=$('edit-class').value||null;
       a.legendKey=a.legend_entry;
       a.wall_type=a.layer==='geometry'?($('edit-wall-type').value||null):null;
+      if(a.wall_type&&wallTypeCatalog[a.wall_type]&&(!a.note||a.note==='Proposal requires review.')){
+        a.note=wallTypeCatalog[a.wall_type].description;
+      }
       enabled.add(a.layer);
     }
     persist();
     renderMarks();
     updateAnnotationList();
+    describeSelection();
     status('Applied changes.');
   };
   function handleCorrectedAction(){
@@ -1008,7 +1125,7 @@
   function toggleHelp(force){const overlay=$('help-overlay');if(!overlay)return;overlay.hidden=force===undefined?!overlay.hidden:!force;}
   function restoreReview(file){return file.text().then(text=>{let out;try{out=JSON.parse(text);}catch{throw Error('The selected file is not valid JSON.');}if(!out||out.schema!=='ved-editable-review-v2'||!Array.isArray(out.sheets))throw Error('Choose a VED review export JSON file.');if(!window.confirm('Importing this review will overwrite the current annotations and notes. Continue?'))return;const upgraded=C.upgradeReview(out,baseline);for(const sheet of upgraded.sheets){const target=D.sheets.find(s=>s.id===sheet.id);if(target)target.annotations=C.clone(sheet.annotations);}for(const key of Object.keys(decisions))delete decisions[key];Object.assign(decisions,upgraded.decisions||{});for(const key of Object.keys(legendColors))delete legendColors[key];Object.assign(legendColors,upgraded.legend_colors||{});load();populateLegendDropdowns();renderCoverage();persist();status('Review imported. Existing annotations and notes were replaced by the imported review.');}).catch(error=>status('Review import failed: '+error.message));}
   function removeSheet(id){const index=D.sheets.findIndex(sheet=>sheet.id===id);if(index<0)return false;const sheet=D.sheets[index];if(!sheet.id.startsWith('imported-')){status('Only imported floor plans can be removed.');return false;}if(!window.confirm('Delete this imported floor plan and all of its annotations?'))return false;D.sheets.splice(index,1);const baselineIndex=baseline.sheets.findIndex(item=>item.id===id);if(baselineIndex>=0)baseline.sheets.splice(baselineIndex,1);D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;const next=D.sheets[0];if(!next)return false;$('group').value=String(next.group);groupChanged();renderCoverage();status('Imported floor plan deleted.');return true;}
-  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,focusLegendByKey,highlightLegendMatches,relevantLegendGroups:relevantGroupsForSheet,legendRegistry:()=>window.LegendRegistry,resolveLegendKey:id=>legendKeyOf(id),legendLabel:id=>legendLabelOf(id),acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(sheet.sheet_type==='legend_reference'){D.counts.legend_reference_sheets=(D.counts.legend_reference_sheets||0)+1;}else{D.counts.plans=(D.counts.plans||0)+1;}if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
+  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,focusLegendByKey,highlightLegendMatches,relevantLegendGroups:relevantGroupsForSheet,legendRegistry:()=>window.LegendRegistry,resolveLegendKey:id=>legendKeyOf(id),legendLabel:id=>legendLabelOf(id),acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,applyWallType,syncWallTypeUI,renderWallTypeChips,getWallTypeCatalog:()=>wallTypeCatalog,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(sheet.sheet_type==='legend_reference'){D.counts.legend_reference_sheets=(D.counts.legend_reference_sheets||0)+1;}else{D.counts.plans=(D.counts.plans||0)+1;}if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
   window.updateAnnotationList=updateAnnotationList;
   window.selectAll=selectAll;
   window.populateLegendDropdowns=populateLegendDropdowns;
