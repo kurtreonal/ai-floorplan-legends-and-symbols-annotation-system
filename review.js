@@ -126,7 +126,92 @@
   function nodeFor(a,color){
     const g=a.geometry,sel=a.id===selected||multi.has(a.id);
     const isAutoPending=(a.method==='auto_annotation_gemini'||(a.id&&a.id.includes('-ai-')) )&&a.review_state==='needs_review';
-    const common={stroke:color,strokeWidth:sel?6:4,dash:isAutoPending?[8,4]:undefined,fill:undefined,opacity:1,hitStrokeWidth:28,name:'annotation',shadowEnabled:sel,shadowColor:'#1683ff',shadowBlur:sel?12:0,shadowOpacity:sel?.9:0};let n;if(g.type==='bbox'){const[x,y,r,b]=g.coordinates;n=new Konva.Rect({...common,x,y,width:r-x,height:b-y});}else n=new Konva.Line({...common,points:g.coordinates.flat(),closed:g.type==='polygon'});n.draggable($('tool').value==='pan');n.setAttr('annotationId',a.id);n.on('mousedown touchstart',e=>{if(e.evt?.button===2){n.stopDrag();e.cancelBubble=true;}});n.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;handleSelectionClick(point(e),{shift:e.evt?.shiftKey,clickedId:a.id});});n.on('dragstart',e=>{if(e.evt?.button===2){n.stopDrag();return;}checkpoint();const ids=(a.geometry.type==='bbox'||a.layer==='geometry')?connectedComponent(a.id):[a.id],base={},peerOrigins={};for(const id of ids){const item=current.annotations.find(x=>x.id===id);if(item)base[id]=C.clone(item.geometry);const peerNode=id===a.id?n:marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);if(peerNode)peerOrigins[id]=peerNode.position();}n.setAttr('dragGroup',{ids,base,peerOrigins,origin:n.position()});});n.on('dragmove',()=>{const state=n.getAttr('dragGroup');if(!state)return;const pos=n.position(),dx=pos.x-state.origin.x,dy=pos.y-state.origin.y;for(const id of state.ids){const item=current.annotations.find(x=>x.id===id);if(!item)continue;const g2=C.translate(state.base[id],dx,dy,current.width,current.height);if(!C.validGeometry(g2,current.width,current.height))continue;item.geometry=g2;const peer=marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);const peerOrigin=state.peerOrigins[id];if(peer&&peer!==n&&peerOrigin)peer.position({x:peerOrigin.x+dx,y:peerOrigin.y+dy});}marksLayer.batchDraw();});n.on('dragend',()=>{const state=n.getAttr('dragGroup');for(const id of state?.ids||[a.id]){const item=current.annotations.find(x=>x.id===id);if(item)preserve(item);}if((state?.ids?.length||1)<=1&&a.geometry.type!=='bbox'&&a.layer!=='geometry')disconnectAnnotation(a);n.setAttr('dragGroup',null);persist();renderMarks();status(state?.ids?.length>1?'Connected annotations moved together.':'Shape moved.');});n.on('contextmenu',e=>{e.evt.preventDefault();e.cancelBubble=true;n.stopDrag();openMenu(e.evt.clientX,e.evt.clientY,a.id);});return n;}
+    const shapeFill=(g.type==='bbox'||g.type==='polygon')?(sel?(color+'26'):'rgba(0,0,0,0.001)'):undefined;
+    const common={stroke:color,strokeWidth:sel?6:4,dash:isAutoPending?[8,4]:undefined,fill:shapeFill,opacity:1,hitStrokeWidth:28,name:'annotation',shadowEnabled:sel,shadowColor:'#1683ff',shadowBlur:sel?12:0,shadowOpacity:sel?.9:0};
+    let n;
+    if(g.type==='bbox'){
+      const[x,y,r,b]=g.coordinates;
+      n=new Konva.Rect({...common,x,y,width:r-x,height:b-y});
+    }else n=new Konva.Line({...common,points:g.coordinates.flat(),closed:g.type==='polygon'});
+    n.draggable($('tool').value==='pan');
+    n.setAttr('annotationId',a.id);
+    n.on('mouseenter',()=>{if($('tool').value==='pan')stage.container().style.cursor='grab';});
+    n.on('mouseleave',()=>{if($('tool').value==='pan'&&!n.isDragging())stage.container().style.cursor='';});
+    n.on('mousedown touchstart',e=>{if(e.evt?.button===2){n.stopDrag();e.cancelBubble=true;}});
+    n.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;handleSelectionClick(point(e),{shift:e.evt?.shiftKey,clickedId:a.id});});
+    n.on('dragstart',e=>{
+      if(e.evt?.button===2){n.stopDrag();return;}
+      stage.container().style.cursor='grabbing';
+      checkpoint();
+      if(selected!==a.id&&!multi.has(a.id)){
+        selected=a.id;
+        multi.clear();
+        describeSelection();
+        formSelection();
+        renderList();
+      }
+      const isMulti=multi.has(a.id)&&multi.size>1;
+      const ids=isMulti?[...multi]:((a.geometry.type==='bbox'||a.layer==='geometry')?connectedComponent(a.id):[a.id]);
+      const base={},peerOrigins={},labelOrigins={},pinOrigins={},handleOrigins=[];
+      for(const id of ids){
+        const item=current.annotations.find(x=>x.id===id);
+        if(item)base[id]=C.clone(item.geometry);
+        const peerNode=id===a.id?n:marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);
+        if(peerNode)peerOrigins[id]=peerNode.position();
+        const lblNode=marksLayer.findOne(x=>x.className==='Label'&&x.getAttr('annotationId')===id);
+        if(lblNode)labelOrigins[id]=lblNode.position();
+        const pinNode=marksLayer.findOne(x=>x.name()==='annotation-pin'&&x.getAttr('annotationId')===id);
+        if(pinNode)pinOrigins[id]=pinNode.position();
+      }
+      const handles=marksLayer.find(x=>x.name()==='handle');
+      for(const h of handles){
+        handleOrigins.push({node:h,pos:h.position(),id:h.getAttr('annotationId')});
+      }
+      n.setAttr('dragGroup',{ids,base,peerOrigins,labelOrigins,pinOrigins,handleOrigins,origin:n.position()});
+    });
+    n.on('dragmove',()=>{
+      const state=n.getAttr('dragGroup');
+      if(!state)return;
+      const pos=n.position(),dx=pos.x-state.origin.x,dy=pos.y-state.origin.y;
+      for(const id of state.ids){
+        const item=current.annotations.find(x=>x.id===id);
+        if(!item)continue;
+        const g2=C.translate(state.base[id],dx,dy,current.width,current.height);
+        if(!C.validGeometry(g2,current.width,current.height))continue;
+        item.geometry=g2;
+        const peer=marksLayer.findOne(x=>x.name()==='annotation'&&x.getAttr('annotationId')===id);
+        const peerOrigin=state.peerOrigins[id];
+        if(peer&&peer!==n&&peerOrigin)peer.position({x:peerOrigin.x+dx,y:peerOrigin.y+dy});
+        const lbl=marksLayer.findOne(x=>x.className==='Label'&&x.getAttr('annotationId')===id);
+        const lblOrigin=state.labelOrigins?.[id];
+        if(lbl&&lblOrigin)lbl.position({x:lblOrigin.x+dx,y:lblOrigin.y+dy});
+        const pin=marksLayer.findOne(x=>x.name()==='annotation-pin'&&x.getAttr('annotationId')===id);
+        const pinOrigin=state.pinOrigins?.[id];
+        if(pin&&pinOrigin)pin.position({x:pinOrigin.x+dx,y:pinOrigin.y+dy});
+      }
+      for(const h of (state.handleOrigins||[])){
+        if(state.ids.includes(h.id)){
+          h.node.position({x:h.pos.x+dx,y:h.pos.y+dy});
+        }
+      }
+      marksLayer.batchDraw();
+    });
+    n.on('dragend',()=>{
+      stage.container().style.cursor=$('tool').value==='pan'?'grab':'';
+      const state=n.getAttr('dragGroup');
+      for(const id of state?.ids||[a.id]){
+        const item=current.annotations.find(x=>x.id===id);
+        if(item)preserve(item);
+      }
+      if((state?.ids?.length||1)<=1&&a.geometry.type!=='bbox'&&a.layer!=='geometry')disconnectAnnotation(a);
+      n.setAttr('dragGroup',null);
+      persist();
+      renderMarks();
+      status(state?.ids?.length>1?'Connected annotations moved together.':'Annotation moved.');
+    });
+    n.on('contextmenu',e=>{e.evt.preventDefault();e.cancelBubble=true;n.stopDrag();openMenu(e.evt.clientX,e.evt.clientY,a.id);});
+    return n;
+  }
   function renderMarks(){
     if(!marksLayer)return;
     marksLayer.destroyChildren();
@@ -147,9 +232,8 @@
         const isAutoPending=(a.method==='auto_annotation_gemini'||(a.id&&a.id.includes('-ai-')) )&&a.review_state==='needs_review';
         const ringColor=a.review_state==='user_reviewed'?'#22c55e':(a.review_state==='corrected'?'#29b6f6':(isAutoPending?'#ff5c7a':'#f59e0b'));
         marksLayer.add(new Konva.Circle({x:cx,y:cy,radius:isSel?10:7,stroke:ringColor,strokeWidth:isSel?3:2,dash:a.review_state==='user_reviewed'?undefined:[3,2],listening:false}));
-        const pin=new Konva.Circle({x:cx,y:cy,radius:isSel?4.5:3,fill:color,stroke:'#07111d',strokeWidth:1.5,name:'annotation-pin'});
+        const pin=new Konva.Circle({x:cx,y:cy,radius:isSel?4.5:3,fill:color,stroke:'#07111d',strokeWidth:1.5,name:'annotation-pin',listening:false});
         pin.setAttr('annotationId',a.id);
-        pin.on('click tap',e=>{if($('tool').value!=='pan')return;e.cancelBubble=true;handleSelectionClick(point(e),{shift:e.evt?.shiftKey,clickedId:a.id});});
         marksLayer.add(pin);
       }
       if(($('tool').value==='polyline'||$('tool').value==='polygon'||a.id===selected||multi.has(a.id))&&a.geometry.type!=='bbox'){
@@ -177,6 +261,8 @@
         pts.forEach((p,i)=>{
           const h=new Konva.Circle({x:p[0],y:p[1],radius:Math.max(view[2],view[3])/85,fill:'#ffffff',stroke:'#1683ff',strokeWidth:4,draggable:$('tool').value==='pan',name:'handle'});
           h.setAttr('annotationId',a.id);
+          h.on('mouseenter',()=>{stage.container().style.cursor='nwse-resize';});
+          h.on('mouseleave',()=>{stage.container().style.cursor=$('tool').value==='pan'?'grab':'';});
           h.on('dragmove',()=>reshape(a,i,h.position()));
           h.on('dragend',()=>finishEdit(a));
           marksLayer.add(h);
