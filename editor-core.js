@@ -48,30 +48,51 @@
   return out;
  }
  function validateReview(payload,base){
-  if(payload.schema!=='ved-editable-review-v2'||!Array.isArray(payload.sheets)||payload.sheets.length!==base.sheets.length)throw Error('Not a complete review export for this dataset.');
+  if(payload.schema!=='ved-editable-review-v2'||!Array.isArray(payload.sheets))throw Error('Not a complete review export for this dataset.');
   const seen=new Set(),layers=new Set(['symbols','geometry','wiring','text','legend','unresolved','regions','ocr']);
   for(const s of payload.sheets){
-   const original=base.sheets.find(b=>b.id===s.id);
-   if(!original||seen.has(s.id)||s.source_sha256!==original.sha256)throw Error('Sheet identity / source hash mismatch.');seen.add(s.id);
+   const isImported=typeof s.id==='string'&&s.id.startsWith('imported-');
+   const original=base?.sheets?.find(b=>b.id===s.id);
+   if(!isImported){
+    if(!original||seen.has(s.id)||(s.source_sha256&&original.sha256&&s.source_sha256!==original.sha256))throw Error('Sheet identity / source hash mismatch.');
+   }else{
+    if(seen.has(s.id))throw Error('Duplicate sheet ID: '+s.id);
+   }
+   seen.add(s.id);
    if(!Array.isArray(s.annotations)||s.annotations.length>20000)throw Error('Invalid annotation count.');
-   const ids=new Set();const legends=new Map(base.sheets.flatMap(b=>b.annotations.filter(a=>a.layer==='legend').map(a=>[a.legend_entry,b])));
-   const userLegendEntries=new Set(payload.sheets.flatMap(sh=>sh.annotations.filter(a=>a.layer==='legend'&&a.class_state==='user_defined_legend_source').map(a=>a.legend_entry)));
+   const sheetW=(original?original.width:s.width)||1000;
+   const sheetH=(original?original.height:s.height)||1000;
+   const ids=new Set();const legends=new Map((base?.sheets||[]).flatMap(b=>(b.annotations||[]).filter(a=>a.layer==='legend').map(a=>[a.legend_entry,b])));
+   const userLegendEntries=new Set(payload.sheets.flatMap(sh=>(sh.annotations||[]).filter(a=>a.layer==='legend'&&a.class_state==='user_defined_legend_source').map(a=>a.legend_entry)));
    for(const a of s.annotations){
-    if(typeof a.id!=='string'||ids.has(a.id)||!layers.has(a.layer)||typeof a.label!=='string'||a.label.length>1000||!validGeometry(a.geometry,original.width,original.height))throw Error('Invalid annotation or coordinates.');ids.add(a.id);
+    if(typeof a.id!=='string'||ids.has(a.id)||!layers.has(a.layer)||typeof a.label!=='string'||a.label.length>1000||!validGeometry(a.geometry,sheetW,sheetH))throw Error('Invalid annotation or coordinates.');ids.add(a.id);
     if(a.legend_entry){const source=legends.get(a.legend_entry);
-     if(!source){if(userLegendEntries.has(a.legend_entry))continue;throw Error('Unknown legend reference.');}
-     if(!original.associated_legend_ids.includes(source.id)&&(a.legend_scope!=='cross_group'||a.class_state!=='cross_group_candidate'||a.legend_source?.sheet_id!==source.id||a.legend_source?.source_sha256!==source.sha256||a.legend_source?.group!==source.group))throw Error('Cross-group matches must retain source provenance and candidate status.');}
+     if(!source){if(userLegendEntries.has(a.legend_entry)||isImported)continue;throw Error('Unknown legend reference.');}
+     if(original&&Array.isArray(original.associated_legend_ids)&&!original.associated_legend_ids.includes(source.id)&&(a.legend_scope!=='cross_group'||a.class_state!=='cross_group_candidate'||a.legend_source?.sheet_id!==source.id||a.legend_source?.source_sha256!==source.sha256||a.legend_source?.group!==source.group))throw Error('Cross-group matches must retain source provenance and candidate status.');}
    }
   }return true;
  }
  function upgradeReview(payload,base){
   const normalized=normalizeImportedReview(payload,base);
-  if(normalized?.sheets?.length===base.sheets.length){validateReview(normalized,base);return clone(normalized);}
-  const legacy=base.legacy_sheet_ids;
-  if(!Array.isArray(legacy)||normalized?.sheets?.length!==legacy.length)throw Error('Review must contain every current page or every original page.');
-  const oldBase={sheets:base.sheets.filter(s=>legacy.includes(s.id))};
-  const out=clone(normalized);validateReview(out,oldBase);for(const s of base.sheets.filter(s=>!legacy.includes(s.id)))out.sheets.push({id:s.id,source_sha256:s.sha256,width:s.width,height:s.height,training_eligible:false,annotations:clone(s.annotations)});
-  out.training_approved=false;validateReview(out,base);return out;
+  const out=clone(normalized);
+  const payloadMap=new Map((normalized.sheets||[]).map(s=>[s.id,s]));
+  const mergedSheets=[];
+  for(const b of base.sheets){
+   if(payloadMap.has(b.id)){
+    mergedSheets.push(payloadMap.get(b.id));
+    payloadMap.delete(b.id);
+   }else{
+    mergedSheets.push({id:b.id,source_sha256:b.sha256,width:b.width,height:b.height,training_eligible:false,annotations:clone(b.annotations||[])});
+   }
+  }
+  for(const [id,remainingSheet] of payloadMap.entries()){
+   if(id.startsWith('imported-')||!base.sheets.some(b=>b.id===id)){
+    mergedSheets.push(remainingSheet);
+   }
+  }
+  out.sheets=mergedSheets;
+  validateReview(out,base);
+  return out;
  }
  function mergeProposals(data,items){let count=0;for(const item of items){const s=data.sheets.find(s=>s.id===item.sheet_id);if(!s||s.sha256!==item.source_sha256||!validGeometry(item.annotation.geometry,s.width,s.height))throw Error('Supplemental proposal source/geometry mismatch.');if(!s.annotations.some(a=>a.id===item.annotation.id)){s.annotations.push(clone(item.annotation));count++;}}return count;}
  const api={clone,validGeometry,translate,validateReview,upgradeReview,mergeProposals};root.AnnotationCore=api;

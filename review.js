@@ -31,7 +31,7 @@
       el.style.fontWeight='';
     }
   };
- const payload=()=>({schema:'ved-editable-review-v2',created_at:new Date().toISOString(),training_approved:false,coordinate_system:'per_sheet_pixel_frame',baseline_revision:'expanded-review-2026-09-09',decisions:C.clone(decisions),legend_colors:C.clone(legendColors),sheets:D.sheets.map(s=>({id:s.id,source_sha256:s.sha256,width:s.width,height:s.height,coordinate_frame:s.coordinate_frame||'original_image_pixels',original_source_sha256:s.original_source_sha256||s.sha256,pdf_page:s.pdf_page||null,training_eligible:false,annotations:C.clone(s.annotations)}))});
+ const payload=()=>({schema:'ved-editable-review-v2',created_at:new Date().toISOString(),training_approved:false,coordinate_system:'per_sheet_pixel_frame',baseline_revision:'expanded-review-2026-09-09',decisions:C.clone(decisions),legend_colors:C.clone(legendColors),sheets:D.sheets.map(s=>({id:s.id,source_sha256:s.sha256,width:s.width,height:s.height,coordinate_frame:s.coordinate_frame||'original_image_pixels',original_source_sha256:s.original_source_sha256||s.sha256,pdf_page:s.pdf_page||null,training_eligible:false,group:s.group,group_name:s.group_name,title:s.title,filename:s.filename,sheet_type:s.sheet_type||'plan',image:s.id.startsWith('imported-')?s.image:undefined,associated_legend_ids:s.associated_legend_ids||[],issues:s.issues||[],annotations:C.clone(s.annotations)}))});
   const storageKey=()=> 'ved-editable-review-v2:'+D.sheets.map(s=>s.sha256).join(':');
   function persist(){
     try{localStorage.setItem(storageKey(),JSON.stringify(payload()));}catch{}
@@ -43,13 +43,42 @@
     try{
       const upgraded=C.upgradeReview(saved,baseline);
       for(const sheet of upgraded.sheets){
-        const target=D.sheets.find(s=>s.id===sheet.id);
+        let target=D.sheets.find(s=>s.id===sheet.id);
+        if(!target && sheet.id.startsWith('imported-')){
+          const newSheet={
+            id:sheet.id,
+            group:sheet.group||(Math.max(0,...D.sheets.map(s=>Number(s.group)||0))+1),
+            group_name:sheet.group_name||('Group '+(sheet.group||'Imported')),
+            title:sheet.title||sheet.filename||'Imported Plan',
+            filename:sheet.filename||sheet.title||'Imported Plan',
+            sheet_type:sheet.sheet_type||'plan',
+            image:sheet.image,
+            width:sheet.width||1000,
+            height:sheet.height||1000,
+            sha256:sheet.source_sha256||sheet.sha256||'',
+            coordinate_system:sheet.coordinate_frame||'original_image_pixels',
+            associated_legend_ids:sheet.associated_legend_ids||[],
+            issues:sheet.issues||['Imported floor plan restored from session.'],
+            annotations:C.clone(sheet.annotations||[])
+          };
+          D.sheets.push(newSheet);
+          baseline.sheets.push(C.clone(newSheet));
+          if(![...$('group').options].some(o=>o.value===String(newSheet.group))){
+            $('group').append(new Option(newSheet.group_name||('Group '+newSheet.group),newSheet.group));
+          }
+          target=newSheet;
+        }
         if(target)target.annotations=C.clone(sheet.annotations);
       }
       for(const key of Object.keys(decisions))delete decisions[key];
       Object.assign(decisions,upgraded.decisions||{});
       for(const key of Object.keys(legendColors))delete legendColors[key];
       Object.assign(legendColors,upgraded.legend_colors||{});
+      D.counts.images=D.sheets.length;
+      D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;
+      D.counts.plans=D.sheets.filter(s=>s.sheet_type==='plan'||s.sheet_type==='plan_with_legend').length;
+      D.counts.legend_reference_sheets=D.sheets.filter(s=>s.sheet_type==='legend_reference').length;
+      $('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;
       return true;
     }catch(error){
       console.warn('Saved review could not be restored.',error);
@@ -807,7 +836,7 @@
   function toggleHelp(force){const overlay=$('help-overlay');if(!overlay)return;overlay.hidden=force===undefined?!overlay.hidden:!force;}
   function restoreReview(file){return file.text().then(text=>{let out;try{out=JSON.parse(text);}catch{throw Error('The selected file is not valid JSON.');}if(!out||out.schema!=='ved-editable-review-v2'||!Array.isArray(out.sheets))throw Error('Choose a VED review export JSON file.');if(!window.confirm('Importing this review will overwrite the current annotations and notes. Continue?'))return;const upgraded=C.upgradeReview(out,baseline);for(const sheet of upgraded.sheets){const target=D.sheets.find(s=>s.id===sheet.id);if(target)target.annotations=C.clone(sheet.annotations);}for(const key of Object.keys(decisions))delete decisions[key];Object.assign(decisions,upgraded.decisions||{});for(const key of Object.keys(legendColors))delete legendColors[key];Object.assign(legendColors,upgraded.legend_colors||{});load();populateLegendDropdowns();renderCoverage();persist();status('Review imported. Existing annotations and notes were replaced by the imported review.');}).catch(error=>status('Review import failed: '+error.message));}
   function removeSheet(id){const index=D.sheets.findIndex(sheet=>sheet.id===id);if(index<0)return false;const sheet=D.sheets[index];if(!sheet.id.startsWith('imported-')){status('Only imported floor plans can be removed.');return false;}if(!window.confirm('Delete this imported floor plan and all of its annotations?'))return false;D.sheets.splice(index,1);const baselineIndex=baseline.sheets.findIndex(item=>item.id===id);if(baselineIndex>=0)baseline.sheets.splice(baselineIndex,1);D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;const next=D.sheets[0];if(!next)return false;$('group').value=String(next.group);groupChanged();renderCoverage();status('Imported floor plan deleted.');return true;}
-  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
+  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(sheet.sheet_type==='legend_reference'){D.counts.legend_reference_sheets=(D.counts.legend_reference_sheets||0)+1;}else{D.counts.plans=(D.counts.plans||0)+1;}if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
   window.updateAnnotationList=updateAnnotationList;
   window.selectAll=selectAll;
   window.populateLegendDropdowns=populateLegendDropdowns;
