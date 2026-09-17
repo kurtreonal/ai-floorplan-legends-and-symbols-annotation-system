@@ -170,12 +170,16 @@ async function run() {
       const selectVal = document.getElementById('edit-wall-type').value;
       const descText = document.getElementById('wall-type-desc').textContent;
       const isChipActive = chip.classList.contains('active');
+      const stage = ws.getStage();
+      const lineNode = stage?.findOne(n => n.name() === 'annotation' && n.getAttr('annotationId') === sel.id);
+      const lineStroke = lineNode?.stroke();
       return {
         clickedKey: 'glass',
         isChipActive,
         selectVal,
         labelInput,
         descText,
+        lineStroke,
         annotationWallType: sel?.wall_type,
         annotationLabel: sel?.label,
         annotationNote: sel?.note
@@ -185,6 +189,7 @@ async function run() {
     assert.strictEqual(clickGlassResult.isChipActive, true, 'Glass chip must be marked active');
     assert.strictEqual(clickGlassResult.selectVal, 'glass', 'Select value must be glass');
     assert.strictEqual(clickGlassResult.annotationWallType, 'glass', 'Annotation wall_type must be updated to glass');
+    assert.strictEqual(clickGlassResult.lineStroke, '#06b6d4', 'Line stroke must change to glass cyan #06b6d4');
     assert(clickGlassResult.labelInput.includes('Glass wall / partition'), 'Label input must include Glass wall title');
     assert(clickGlassResult.labelInput.includes('glazed partition') || clickGlassResult.labelInput.includes('architectural glass'), 'Label input must include architectural description');
     assert.strictEqual(clickGlassResult.annotationLabel, clickGlassResult.labelInput, 'Annotation label must match edit-label input');
@@ -201,12 +206,15 @@ async function run() {
       const selectVal = document.getElementById('edit-wall-type').value;
       const isFireActive = chip.classList.contains('active');
       const isGlassActive = document.querySelector('.wall-type-chip[data-key="glass"]').classList.contains('active');
+      const lineNode = ws.getStage()?.findOne(n => n.name() === 'annotation' && n.getAttr('annotationId') === sel.id);
+      const lineStroke = lineNode?.stroke();
       return {
         clickedKey: 'fire_rated',
         isFireActive,
         isGlassActive,
         selectVal,
         labelInput,
+        lineStroke,
         annotationWallType: sel?.wall_type,
         annotationLabel: sel?.label,
         annotationNote: sel?.note
@@ -217,6 +225,7 @@ async function run() {
     assert.strictEqual(clickFireResult.isGlassActive, false, 'Glass chip must no longer be active');
     assert.strictEqual(clickFireResult.selectVal, 'fire_rated', 'Select value must be fire_rated');
     assert.strictEqual(clickFireResult.annotationWallType, 'fire_rated', 'Annotation wall_type must be fire_rated');
+    assert.strictEqual(clickFireResult.lineStroke, '#ef4444', 'Line stroke must change to fire-rated red #ef4444');
     assert(clickFireResult.labelInput.includes('Fire-rated wall'), 'Label must include Fire-rated wall');
     assert(clickFireResult.labelInput.includes('smoke barrier') || clickFireResult.labelInput.includes('fire-resistive'), 'Label must include fire description');
 
@@ -229,10 +238,13 @@ async function run() {
       const ws = window.reviewWorkspace;
       const sel = ws.getSelected();
       const chip = document.querySelector('.wall-type-chip[data-key="curtain_wall"]');
+      const lineNode = ws.getStage()?.findOne(n => n.name() === 'annotation' && n.getAttr('annotationId') === sel.id);
+      const lineStroke = lineNode?.stroke();
       return {
         selectVal: select.value,
         isChipActive: chip.classList.contains('active'),
         labelInput: document.getElementById('edit-label').value,
+        lineStroke,
         annotationWallType: sel?.wall_type,
         annotationLabel: sel?.label,
         annotationNote: sel?.note
@@ -241,7 +253,51 @@ async function run() {
     console.log('Dropdown change result:', JSON.stringify(dropdownResult, null, 2));
     assert.strictEqual(dropdownResult.annotationWallType, 'curtain_wall', 'Annotation wall_type must be curtain_wall');
     assert.strictEqual(dropdownResult.isChipActive, true, 'Curtain wall chip must be active');
+    assert.strictEqual(dropdownResult.lineStroke, '#0ea5e9', 'Line stroke must change to curtain wall sky blue #0ea5e9');
     assert(dropdownResult.annotationLabel.includes('Curtain wall'), 'Annotation label must be updated with Curtain wall description');
+
+    // Check 6: Click Opening / doorway (no wall)
+    console.log('\n--- Clicking "Opening / doorway (no wall)" chip ---');
+    const clickOpeningResult = await client.eval(`(() => {
+      const chip = document.querySelector('.wall-type-chip[data-key="opening"]');
+      if (chip) chip.click();
+      const ws = window.reviewWorkspace;
+      const sel = ws.getSelected();
+      const lineNode = ws.getStage()?.findOne(n => n.name() === 'annotation' && n.getAttr('annotationId') === sel.id);
+      return {
+        clickedKey: 'opening',
+        selectVal: document.getElementById('edit-wall-type').value,
+        lineStroke: lineNode?.stroke(),
+        annotationWallType: sel?.wall_type
+      };
+    })()`);
+    console.log('Opening click result:', JSON.stringify(clickOpeningResult, null, 2));
+    assert.strictEqual(clickOpeningResult.selectVal, 'opening');
+    assert.strictEqual(clickOpeningResult.annotationWallType, 'opening');
+    assert.strictEqual(clickOpeningResult.lineStroke, '#f59e0b', 'Line stroke must change to opening amber #f59e0b');
+
+    // Check 7: Verify all remaining wall types: partition, standard, other
+    for (const [key, expectedColor] of [
+      ['partition', '#8b5cf6'],
+      ['standard', '#3b82f6'],
+      ['other', '#64748b']
+    ]) {
+      console.log(`\n--- Clicking "${key}" chip ---`);
+      const testRes = await client.eval(`(() => {
+        const chip = document.querySelector('.wall-type-chip[data-key="${key}"]');
+        if (chip) chip.click();
+        const ws = window.reviewWorkspace;
+        const sel = ws.getSelected();
+        const lineNode = ws.getStage()?.findOne(n => n.name() === 'annotation' && n.getAttr('annotationId') === sel.id);
+        return {
+          wallType: sel?.wall_type,
+          stroke: lineNode?.stroke()
+        };
+      })()`);
+      console.log(`${key} result:`, JSON.stringify(testRes));
+      assert.strictEqual(testRes.wallType, key, `Wall type must be ${key}`);
+      assert.strictEqual(testRes.stroke, expectedColor, `Line stroke for ${key} must be ${expectedColor}`);
+    }
 
     // Take screenshot
     const shot = await client.send('Page.captureScreenshot', { format: 'png' });
