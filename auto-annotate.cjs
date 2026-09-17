@@ -1207,6 +1207,19 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     sheet = sheetMeta;
   }
   if (!sheet) {
+    try {
+      const expPath = path.join(__dirname, 'expanded-dataset.js');
+      if (fs.existsSync(expPath)) {
+        const expContent = fs.readFileSync(expPath, 'utf8');
+        const m = expContent.match(/window\.DATASET_EXPANSION\s*=\s*(\{.*?\});/);
+        if (m) {
+          const expData = JSON.parse(m[1]);
+          sheet = (expData.sheets || []).find(s => s.id === sheetId);
+        }
+      }
+    } catch {}
+  }
+  if (!sheet) {
     throw new Error(`Sheet ${sheetId} not found in workspace.`);
   }
 
