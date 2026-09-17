@@ -81,6 +81,7 @@
           }else{
             target.annotations=restoredAnnotations;
           }
+          window.OUTLET_CLASS_UPGRADES?.mergeRestored(target,baselineSheet);
         }
       }
       for(const key of Object.keys(decisions))delete decisions[key];
@@ -716,7 +717,6 @@
     const registry=LR();
     const previousValue=sel.value;
     const term=(filterQuery!==undefined?filterQuery:($('edit-class-search')?.value||'')).toLowerCase().trim();
-
     // One universal catalogue: every legend row on every sheet, from every group,
     // plus every uploaded crop, folded onto one entry per distinct symbol.
     if(registry){
@@ -728,9 +728,29 @@
         universal:true
       }));
     }else{
-      window.legendList=window.legendList||[];
+      const legendMap=new Map();
+      for(const s of (baseline?.sheets||[])){
+        for(const a of (s.annotations||[]).filter(x=>x.layer==='legend'&&x.legend_entry&&x.review_state!=='deleted')){
+          if(!legendMap.has(a.legend_entry)){
+            legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'baseline'});
+          }
+        }
+      }
+      for(const s of (D?.sheets||[])){
+        for(const a of (s.annotations||[]).filter(x=>x.layer==='legend'&&x.legend_entry&&x.review_state!=='deleted')){
+          if(!legendMap.has(a.legend_entry)){
+            legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'sheet'});
+          }
+        }
+      }
+      for(const entry of [...(window.CUSTOM_LEGEND_ENTRIES||[]),...(window.legendList||[])]){
+        const id=entry.legend_entry||entry.legendKey;
+        if(id&&!legendMap.has(id)){
+          legendMap.set(id,{legend_entry:id,legendKey:id,label:entry.label||id,group:current?.group||1,group_name:'Custom / Uploaded',sheet_id:null,source:'custom'});
+        }
+      }
+      window.legendList=Array.from(legendMap.values());
     }
-
     sel.replaceChildren(new Option('Unresolved / no clear legend match',''));
 
     const relevantGroups=relevantGroupsForSheet(current);
