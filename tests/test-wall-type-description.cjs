@@ -299,7 +299,18 @@ async function run() {
       assert.strictEqual(testRes.stroke, expectedColor, `Line stroke for ${key} must be ${expectedColor}`);
     }
 
-    // Take screenshot
+    // Select "opening" and capture in dark mode to verify against user view
+    await client.eval(`(() => {
+      document.querySelector('.wall-type-chip[data-key="opening"]')?.click();
+      document.documentElement.setAttribute('data-theme', 'dark');
+    })()`);
+
+    // Take screenshots
+    const shotDark = await client.send('Page.captureScreenshot', { format: 'png' });
+    const shotDarkPath = path.resolve('.temp/test-wall-type-dark.png');
+    fs.writeFileSync(shotDarkPath, Buffer.from(shotDark.data, 'base64'));
+    console.log('Saved dark verification screenshot:', shotDarkPath);
+
     const shot = await client.send('Page.captureScreenshot', { format: 'png' });
     const shotPath = path.resolve('.temp/test-wall-type-description.png');
     fs.writeFileSync(shotPath, Buffer.from(shot.data, 'base64'));

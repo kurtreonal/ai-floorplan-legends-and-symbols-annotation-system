@@ -66,7 +66,10 @@
       const ind=document.createElement('span');
       ind.className='wall-type-chip-indicator';
       ind.style.backgroundColor=item.color;
-      titleSpan.append(ind,document.createTextNode(item.label));
+      const nameSpan=document.createElement('span');
+      nameSpan.className='wall-type-chip-name';
+      nameSpan.textContent=item.label;
+      titleSpan.append(ind,nameSpan);
       const descSpan=document.createElement('span');
       descSpan.className='wall-type-chip-desc';
       descSpan.textContent=item.description;
