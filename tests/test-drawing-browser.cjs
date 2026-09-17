@@ -223,9 +223,9 @@ async function run() {
     const lineStatus = await client.eval(`document.getElementById('editor-status').textContent`);
     console.log('Status after selecting Draw line:', lineStatus);
 
-    const lineP1 = { x: canvasRect.left + 300, y: canvasRect.top + 200 };
-    const lineP2 = { x: lineP1.x + 100, y: lineP1.y + 60 };
-    const lineP3 = { x: lineP2.x + 80, y: lineP2.y - 40 };
+    const lineP1 = { x: canvasRect.left + 150, y: canvasRect.top + 150 };
+    const lineP2 = { x: lineP1.x + 90, y: lineP1.y + 60 };
+    const lineP3 = { x: lineP2.x + 90, y: lineP2.y - 30 };
 
     console.log('Clicking line points...');
     await client.click(lineP1.x, lineP1.y);
