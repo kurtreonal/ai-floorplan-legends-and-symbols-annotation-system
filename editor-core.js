@@ -66,7 +66,7 @@
    const userLegendEntries=new Set(payload.sheets.flatMap(sh=>(sh.annotations||[]).filter(a=>a.layer==='legend'&&a.class_state==='user_defined_legend_source').map(a=>a.legend_entry)));
    for(const a of s.annotations){
     if(typeof a.id!=='string'||ids.has(a.id)||!layers.has(a.layer)||typeof a.label!=='string'||a.label.length>1000||!validGeometry(a.geometry,sheetW,sheetH))throw Error('Invalid annotation or coordinates.');ids.add(a.id);
-    if(a.legend_entry){const source=legends.get(a.legend_entry);
+    if(a.legend_entry){if(typeof a.legend_entry==='string'&&a.legend_entry.startsWith('u:'))continue;const source=legends.get(a.legend_entry);
      if(!source){if(userLegendEntries.has(a.legend_entry)||isImported)continue;throw Error('Unknown legend reference.');}
      if(original&&Array.isArray(original.associated_legend_ids)&&!original.associated_legend_ids.includes(source.id)&&(a.legend_scope!=='cross_group'||a.class_state!=='cross_group_candidate'||a.legend_source?.sheet_id!==source.id||a.legend_source?.source_sha256!==source.sha256||a.legend_source?.group!==source.group))throw Error('Cross-group matches must retain source provenance and candidate status.');}
    }

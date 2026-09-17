@@ -9,8 +9,11 @@
  let rotation=0;const rotationBySheet={};
  let legendColors={};
  const legendPalette=['#B8F23D','#29B6F6','#FF9F43','#F472B6','#22D3EE','#FF5C7A','#FFD166','#C4B5FD','#F97316','#38BDF8','#A3E635','#F43F5E','#2DD4BF','#FACC15','#818CF8','#FB7185'];
- function colorForLegend(id){if(!id)return null;if(!legendColors[id]){let h=0;for(let i=0;i<id.length;i++)h=(h*31+id.charCodeAt(i))>>>0;legendColors[id]=legendPalette[h%legendPalette.length];}return legendColors[id];}
- function setLegendColor(id,color){if(!id||!color)return;legendColors[id]=color;persist();renderMarks();window.workspaceUI?.show(current);}
+  const LR=()=>window.LegendRegistry;
+ function legendKeyOf(id){return id?((LR()?.resolve(id))||id):null;}
+ function legendLabelOf(id){return id?((LR()?.labelFor(id))||id):'';}
+ function colorForLegend(id){if(!id)return null;const key=legendKeyOf(id);if(!legendColors[key]){let h=0;for(let i=0;i<key.length;i++)h=(h*31+key.charCodeAt(i))>>>0;legendColors[key]=legendPalette[h%legendPalette.length];}return legendColors[key];}
+ function setLegendColor(id,color){if(!id||!color)return;legendColors[legendKeyOf(id)]=color;persist();renderMarks();window.workspaceUI?.show(current);}
  function colorForAnnotation(a){return a.legend_entry?colorForLegend(a.legend_entry):(colors[a.layer]||'#1683ff');}
  const wallTypeLabels={standard:'Standard wall',glass:'Glass wall / partition',partition:'Partition (non-glass)',fire_rated:'Fire-rated wall',curtain_wall:'Curtain wall',opening:'Opening / doorway (no wall)',other:'Other'};
   const status=(m,type)=>{
@@ -299,7 +302,7 @@
     const p=document.createElement('p');
     p.textContent=a.note||'Proposal requires review.';
     const small=document.createElement('small');
-    small.textContent=`${a.id} · ${a.review_state} · ${a.legend_entry||a.legendKey||'No legend class assigned'}${a.wall_type?' · '+(wallTypeLabels[a.wall_type]||a.wall_type):''}`;
+    small.textContent=`${a.id} · ${a.review_state} · ${legendLabelOf(a.legend_entry||a.legendKey)||'No legend class assigned'}${a.wall_type?' · '+(wallTypeLabels[a.wall_type]||a.wall_type):''}`;
     box.append(h,p,small);
   }
   function matchesAnnotationFilter(a,term){
@@ -308,7 +311,7 @@
     const idStr=(a.id||'').toLowerCase();
     const labelStr=(a.label||'').toLowerCase();
     const layerStr=(a.layer||'').toLowerCase();
-    const legendStr=(a.legend_entry||a.legendKey||'').toLowerCase();
+    const legendStr=((a.legend_entry||a.legendKey||'')+' '+legendLabelOf(a.legend_entry||a.legendKey)).toLowerCase();
     const statusStr=(a.review_state||'').toLowerCase();
     const wallStr=(a.wall_type||'').toLowerCase();
     const confStr=a.confidence!==undefined?String(a.confidence):'';
@@ -331,7 +334,7 @@
       b.dataset.id=a.id;
       b.textContent=a.id.split('-').pop()+' · '+a.label;
       const small=document.createElement('small');
-      const legText=(a.legend_entry||a.legendKey)?(' · '+((a.legend_entry||a.legendKey).length>22?(a.legend_entry||a.legendKey).slice(0,20)+'…':(a.legend_entry||a.legendKey))):'';
+      const legName=legendLabelOf(a.legend_entry||a.legendKey);const legText=legName?(' · '+(legName.length>22?legName.slice(0,20)+'…':legName)):'';
       small.textContent=a.layer+' · '+(isAutoPending?'auto suggestion':a.review_state)+legText;
       b.append(small);
       b.onclick=e=>{choose(a.id,{shift:e.shiftKey});if(!e.shiftKey)focusSelected();};
@@ -372,7 +375,7 @@
     const a=selectedAnnotation();if(!a)return;
     $('edit-layer').value=a.layer;
     $('edit-label').value=a.label;
-    $('edit-class').value=a.legend_entry||a.legendKey||'';
+    $('edit-class').value=legendKeyOf(a.legend_entry||a.legendKey)||'';
     $('edit-wall-type').value=a.wall_type||'';
     $('wall-type-field').hidden=a.layer!=='geometry';
     const c=$('edit-legend-color');
@@ -653,6 +656,42 @@
  }
  function resizeStage(){const r=$('canvas').getBoundingClientRect();stage?.size({width:r.width,height:Math.max(420,r.height)});applyView();}
  function load(afterLoad){current=D.sheets.find(r=>r.id===$('sheet').value);rotation=rotationBySheet[current.id]||0;selected=null;multi.clear();$('title').textContent=current.title;$('image-meta').textContent=`${current.filename} · ${current.width} × ${current.height} original pixels · image unchanged`;$('coverage').textContent='Detailed annotations: partial. Human review: pending. Training eligibility: false.';$('decision').value=(decisions[current.id]||{decision:'pending'}).decision;$('notes').value=(decisions[current.id]||{}).notes||'';const img=new Image();img.onload=()=>{imageLayer.destroyChildren();imageLayer.add(new Konva.Image({image:img,x:0,y:0,width:current.width,height:current.height,listening:false}));if(attachedImage)imageLayer.add(new Konva.Image({image:attachedImage,x:0,y:0,width:current.width,height:current.height,opacity:.28,listening:false}));imageLayer.draw();fit();renderMarks();renderList();describeSelection();updateHistoryButtons();if(typeof afterLoad==='function')afterLoad();};img.src=current.image;$('issues').replaceChildren(...[...current.issues,'Full-page symbol, wall/opening and wiring completeness has not been verified.'].map(t=>Object.assign(document.createElement('li'),{textContent:t})));populateLegendDropdowns();window.referencePanel?.show(current);window.workspaceUI?.show(current);}
+
+ // Which drawing groups a sheet's legend catalogue should be scoped to:
+ // its own group, plus any group(s) its associated legend-reference sheets belong to.
+ // The registry itself stays universal (one key per symbol, matched across every
+ // group); this only narrows what the pickers *display* for the open drawing.
+ function relevantGroupsForSheet(sheet){
+  const groups=new Set();
+  if(!sheet)return groups;
+  if(sheet.group!=null)groups.add(sheet.group);
+  for(const id of (sheet.associated_legend_ids||[])){
+   const src=(D.sheets||[]).find(s=>s.id===id)||(baseline.sheets||[]).find(s=>s.id===id);
+   if(src&&src.group!=null)groups.add(src.group);
+  }
+  return groups;
+ }
+ // Selecting a universal legend should only select/highlight the matching
+ // annotation(s) already on THIS sheet's list - never navigate the canvas or
+ // jump to wherever the symbol was originally defined.
+ function highlightLegendMatches(legendId){
+  if(!current||!legendId)return 0;
+  const registry=LR();
+  const matches=current.annotations.filter(a=>a.review_state!=='deleted'&&(a.legend_entry||a.legendKey)&&(registry?registry.sameSymbol(a.legend_entry||a.legendKey,legendId):(a.legend_entry===legendId||a.legendKey===legendId)));
+  multi.clear();
+  matches.forEach(a=>multi.add(a.id));
+  selected=matches.length===1?matches[0].id:null;
+  describeSelection();
+  renderMarks();
+  updateAnnotationList();
+  if(matches.length)status(matches.length+' annotation'+(matches.length===1?'':'s')+" on this drawing use '"+legendLabelOf(legendId)+"'.");
+  return matches.length;
+ }
+ function focusLegendByKey(legendId){
+  const src=LR()?.bestSource(legendId,current?.id);
+  if(!src||!src.sheet_id||!src.geometry||src.geometry.type!=='bbox')return false;
+  return focusLegendSource(src.sheet_id,src.geometry.coordinates,legendLabelOf(legendId));
+ }
  function focusLegendSource(sheetId,coords,label){
   const targetSheet=D.sheets.find(s=>s.id===sheetId);
   if(!targetSheet||!Array.isArray(coords)||coords.length<4)return false;
@@ -674,73 +713,46 @@
   window.legendList=window.legendList||[];
   function populateLegendDropdowns(filterQuery){
     const sel=$('edit-class');if(!sel)return;
+    const registry=LR();
     const previousValue=sel.value;
     const term=(filterQuery!==undefined?filterQuery:($('edit-class-search')?.value||'')).toLowerCase().trim();
-    const legendMap=new Map();
-    for(const s of (baseline?.sheets||[])){
-      for(const a of (s.annotations||[]).filter(x=>x.layer==='legend'&&x.legend_entry)){
-        if(!legendMap.has(a.legend_entry)){
-          legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'baseline'});
-        }
-      }
+
+    // One universal catalogue: every legend row on every sheet, from every group,
+    // plus every uploaded crop, folded onto one entry per distinct symbol.
+    if(registry){
+      registry.rebuild({baseline,data:D,custom:window.CUSTOM_LEGEND_ENTRIES||[]});
+      window.legendList=registry.list().map(e=>({
+        legend_entry:e.key,legendKey:e.key,key:e.key,label:e.label,
+        aliases:Array.from(e.aliases),sources:e.sources,
+        sheet_ids:Array.from(e.sheetIds),usage:e.usage||0,custom:!!e.custom,
+        universal:true
+      }));
+    }else{
+      window.legendList=window.legendList||[];
     }
-    for(const s of (D?.sheets||[])){
-      for(const a of (s.annotations||[]).filter(x=>x.layer==='legend'&&x.legend_entry)){
-        if(!legendMap.has(a.legend_entry)){
-          legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'sheet'});
-        }
-      }
-    }
-    for(const entry of [...(window.CUSTOM_LEGEND_ENTRIES||[]),...(window.legendList||[])]){
-      const id=entry.legend_entry||entry.legendKey;
-      if(id&&!legendMap.has(id)){
-        legendMap.set(id,{legend_entry:id,legendKey:id,label:entry.label||id,group:current?.group||1,group_name:'Custom / Uploaded',sheet_id:null,source:'custom'});
-      }
-    }
-    window.legendList=Array.from(legendMap.values());
+
     sel.replaceChildren(new Option('Unresolved / no clear legend match',''));
 
-    const associatedIds=Array.isArray(current?.associated_legend_ids)?current.associated_legend_ids:[];
-    const isCurrentMatch=leg=>current&&(leg.sheet_id===current.id||associatedIds.includes(leg.sheet_id)||leg.group===current.group);
-
-    if(current&&!term){
-      const activeEntries=window.legendList.filter(isCurrentMatch);
-      if(activeEntries.length>0){
-        const activeGroup=document.createElement('optgroup');
-        activeGroup.label=`Active Drawing / Group ${current.group} (${activeEntries.length})`;
-        for(const leg of activeEntries){
-          const opt=new Option(`${leg.label} [${leg.legend_entry}]`,leg.legend_entry);
-          opt.dataset.label=leg.label;
-          activeGroup.append(opt);
-        }
-        sel.append(activeGroup);
-      }
+    const relevantGroups=relevantGroupsForSheet(current);
+    const entries=registry?registry.list(term,{groups:relevantGroups}):[];
+    for(const e of entries){
+      const drawings=e.sheetIds?e.sheetIds.size:0;
+      const bits=[];
+      if(drawings>1)bits.push(drawings+' drawings');
+      if(e.usage)bits.push(e.usage+' placed');
+      if(e.custom)bits.push('uploaded');
+      const opt=new Option(e.label+(bits.length?'  ·  '+bits.join(' · '):''),e.key);
+      opt.dataset.label=e.label;
+      opt.dataset.universal='1';
+      if(current&&registry.isUsedOn(e.key,current.id))opt.dataset.onSheet='1';
+      sel.append(opt);
     }
 
-    const distinctGroups=[...new Set(window.legendList.map(l=>l.group))].sort((a,b)=>a-b);
-    for(const g of distinctGroups){
-      const entries=window.legendList.filter(l=>l.group===g);
-      const filtered=entries.filter(leg=>{
-        if(!term)return true;
-        const text=(leg.label+' '+(leg.group_name||'')+' '+leg.legend_entry+' group '+leg.group).toLowerCase();
-        return text.includes(term);
-      });
-      if(!filtered.length)continue;
+    const countEl=$('legend-catalog-count');
+    if(countEl)countEl.textContent=entries.length+' universal symbol'+(entries.length===1?'':'s')+(term?' matching':' in the shared catalogue');
 
-      const optgroup=document.createElement('optgroup');
-      const gName=entries[0]?.group_name||`Group ${g}`;
-      optgroup.label=g>=21?`Group ${g} · ${gName}`:`Group ${g} (${filtered.length})`;
-
-      for(const leg of filtered){
-        const text=`${leg.label}${g>=21?'':' — Group '+leg.group}`;
-        const opt=new Option(text,leg.legend_entry);
-        opt.dataset.label=leg.label;
-        optgroup.append(opt);
-      }
-      sel.append(optgroup);
-    }
-
-    if(previousValue&&Array.from(sel.options).some(o=>o.value===previousValue))sel.value=previousValue;
+    const resolvedPrev=registry?registry.resolve(previousValue):previousValue;
+    if(resolvedPrev&&Array.from(sel.options).some(o=>o.value===resolvedPrev))sel.value=resolvedPrev;
   }
   function fillClasses(){populateLegendDropdowns();}
   function save(){decisions[current.id]={source_sha256:current.sha256,decision:$('decision').value,notes:$('notes').value};persist();$('saved').textContent='Draft updated. Export your corrections before closing.';}
@@ -754,7 +766,7 @@
   beginStage();populateLegendDropdowns();$('group').onchange=groupChanged;$('sheet').onchange=load;$('fit').onclick=fit;$('zin').onclick=()=>zoom(.65);$('zout').onclick=()=>zoom(1.5);$('focus').onclick=focusSelected;$('rotate').onclick=rotateView;$('show-overlays').onchange=renderMarks;
   $('annotation-search').oninput=updateAnnotationList;
   $('edit-class-search')?.addEventListener('input',()=>populateLegendDropdowns($('edit-class-search').value));
-  $('tool').onchange=()=>setTool($('tool').value);$('edit-layer').onchange=()=>{$('wall-type-field').hidden=$('edit-layer').value!=='geometry';};$('edit-class').onchange=()=>{const o=$('edit-class').selectedOptions[0];if(o?.dataset?.label)$('edit-label').value=o.dataset.label;const c=$('edit-legend-color');if(c)c.value=colorForLegend($('edit-class').value)||'#1683ff';};$('edit-legend-color')?.addEventListener('input',()=>{const id=$('edit-class').value;if(!id){status('Choose a legend class first, then pick its color.');return;}setLegendColor(id,$('edit-legend-color').value);});  $('finish').onclick=()=>finishDrawing();$('cancel').onclick=()=>{cancelDrawing();status('Drawing cancelled.');};$('decision').onchange=save;$('notes').oninput=save;$('theme-toggle').onclick=toggleTheme;$('attach-image').onchange=e=>{const file=e.target.files[0];if(!file)return;attachedImage=null;if(window.reviewWorkspace?.importFloorPlan){window.reviewWorkspace.importFloorPlan(file);}e.target.value='';};
+  $('tool').onchange=()=>setTool($('tool').value);$('edit-layer').onchange=()=>{$('wall-type-field').hidden=$('edit-layer').value!=='geometry';};$('edit-class').onchange=()=>{const o=$('edit-class').selectedOptions[0];if(o?.dataset?.label)$('edit-label').value=o.dataset.label;const c=$('edit-legend-color');if(c)c.value=colorForLegend($('edit-class').value)||'#1683ff';if($('edit-class').value)highlightLegendMatches($('edit-class').value);};$('edit-legend-color')?.addEventListener('input',()=>{const id=$('edit-class').value;if(!id){status('Choose a legend class first, then pick its color.');return;}setLegendColor(id,$('edit-legend-color').value);});  $('finish').onclick=()=>finishDrawing();$('cancel').onclick=()=>{cancelDrawing();status('Drawing cancelled.');};$('decision').onchange=save;$('notes').oninput=save;$('theme-toggle').onclick=toggleTheme;$('attach-image').onchange=e=>{const file=e.target.files[0];if(!file)return;attachedImage=null;if(window.reviewWorkspace?.importFloorPlan){window.reviewWorkspace.importFloorPlan(file);}e.target.value='';};
   $('update').onclick=()=>{
     const targets=selectedAnnotations();
     if(!targets.length){status('Select at least one annotation first.');return;}
@@ -802,7 +814,7 @@
     const term=($('annotation-search')?.value||'').trim();
     const targets=current.annotations.filter(a=>{
       if(!enabled.has(a.layer)||a.review_state==='deleted')return false;
-      if(activeLegendKey&&a.legend_entry!==activeLegendKey&&a.legendKey!==activeLegendKey)return false;
+      if(activeLegendKey&&!(LR()?.sameSymbol(a.legend_entry||a.legendKey,activeLegendKey)??((a.legend_entry===activeLegendKey)||(a.legendKey===activeLegendKey))))return false;
       if(!matchesAnnotationFilter(a,term))return false;
       return true;
     });
@@ -811,7 +823,7 @@
     describeSelection();
     renderMarks();
     updateAnnotationList();
-    status(`Selected ${targets.length} annotation${targets.length===1?'':'s'}`+(activeLegendKey?` matching legend '${activeLegendKey}'.`:'.'));
+    status(`Selected ${targets.length} annotation${targets.length===1?'':'s'}`+(activeLegendKey?` matching legend '${legendLabelOf(activeLegendKey)}'.`:'.'));
   }
   $('select-all-visible').onclick=selectAll;
   $('mark-all-corrected').onclick=()=>{const targets=current.annotations.filter(a=>enabled.has(a.layer)&&a.review_state!=='deleted');if(!targets.length){status('No visible annotations to mark.');return;}checkpoint();targets.forEach(preserve);targets.forEach(a=>a.review_state='user_reviewed');multi.clear();targets.forEach(a=>multi.add(a.id));selected=null;persist();describeSelection();renderMarks();updateAnnotationList();status(targets.length+' visible annotation'+(targets.length===1?'':'s')+' marked reviewed.');};
@@ -966,7 +978,7 @@
   function toggleHelp(force){const overlay=$('help-overlay');if(!overlay)return;overlay.hidden=force===undefined?!overlay.hidden:!force;}
   function restoreReview(file){return file.text().then(text=>{let out;try{out=JSON.parse(text);}catch{throw Error('The selected file is not valid JSON.');}if(!out||out.schema!=='ved-editable-review-v2'||!Array.isArray(out.sheets))throw Error('Choose a VED review export JSON file.');if(!window.confirm('Importing this review will overwrite the current annotations and notes. Continue?'))return;const upgraded=C.upgradeReview(out,baseline);for(const sheet of upgraded.sheets){const target=D.sheets.find(s=>s.id===sheet.id);if(target)target.annotations=C.clone(sheet.annotations);}for(const key of Object.keys(decisions))delete decisions[key];Object.assign(decisions,upgraded.decisions||{});for(const key of Object.keys(legendColors))delete legendColors[key];Object.assign(legendColors,upgraded.legend_colors||{});load();populateLegendDropdowns();renderCoverage();persist();status('Review imported. Existing annotations and notes were replaced by the imported review.');}).catch(error=>status('Review import failed: '+error.message));}
   function removeSheet(id){const index=D.sheets.findIndex(sheet=>sheet.id===id);if(index<0)return false;const sheet=D.sheets[index];if(!sheet.id.startsWith('imported-')){status('Only imported floor plans can be removed.');return false;}if(!window.confirm('Delete this imported floor plan and all of its annotations?'))return false;D.sheets.splice(index,1);const baselineIndex=baseline.sheets.findIndex(item=>item.id===id);if(baselineIndex>=0)baseline.sheets.splice(baselineIndex,1);D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;const next=D.sheets[0];if(!next)return false;$('group').value=String(next.group);groupChanged();renderCoverage();status('Imported floor plan deleted.');return true;}
-  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(sheet.sheet_type==='legend_reference'){D.counts.legend_reference_sheets=(D.counts.legend_reference_sheets||0)+1;}else{D.counts.plans=(D.counts.plans||0)+1;}if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
+  window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,focusLegendByKey,highlightLegendMatches,relevantLegendGroups:relevantGroupsForSheet,legendRegistry:()=>window.LegendRegistry,resolveLegendKey:id=>legendKeyOf(id),legendLabel:id=>legendLabelOf(id),acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(sheet.sheet_type==='legend_reference'){D.counts.legend_reference_sheets=(D.counts.legend_reference_sheets||0)+1;}else{D.counts.plans=(D.counts.plans||0)+1;}if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
   window.updateAnnotationList=updateAnnotationList;
   window.selectAll=selectAll;
   window.populateLegendDropdowns=populateLegendDropdowns;

@@ -159,7 +159,15 @@
   attach(entry){
    const current=window.reviewWorkspace?.getCurrent?.();
    if(!current){status.textContent='Open a drawing first, then attach this legend entry.';return;}
-   const legendEntryId='user-legend-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6);
+   const registry=window.LegendRegistry;
+
+   // Universal behaviour: if this label already exists as a symbol anywhere in
+   // the catalogue, reuse that symbol's key instead of minting a duplicate.
+   const existing=registry?registry.get(entry.label):null;
+   const merged=!!existing;
+   const legendEntryId=existing?existing.key:(registry?registry.keyFor(entry.label):('user-legend-'+Date.now().toString(36)));
+   if(!legendEntryId){status.textContent='Give this legend entry a usable label first.';return;}
+
    const id=current.id+'-userlegend-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6);
    const w=current.width,h=current.height;
    const bw=Math.min(w*0.12,220),bh=Math.min(h*0.08,160);
@@ -167,33 +175,40 @@
     id,layer:'legend',label:entry.label,
     geometry:{type:'bbox',coordinates:[8,8,8+bw,8+bh]},
     legend_entry:legendEntryId,
+    legendKey:legendEntryId,
+    legend_scope:'universal',
     review_state:'manually_added',
     method:'human_manual_annotation',
     class_state:'user_defined_legend_source',
     production_class_id:null,
-    note:'User-uploaded legend entry from '+entry.sourceName+'. Not an original drawing legend; verify before relying on it.',
+    note:(merged
+      ? 'User-uploaded example added to the existing universal symbol "'+(existing.label)+'". Verify before relying on it.'
+      : 'User-uploaded legend entry from '+entry.sourceName+'. Not an original drawing legend; verify before relying on it.'),
     created_at:new Date().toISOString(),
     uploaded_crop:entry.dataUrl
    };
    current.annotations.push(annotation);
-   const customEntry={legend_entry:legendEntryId,legendKey:legendEntryId,label:entry.label,source_name:entry.sourceName,crop:entry.dataUrl,source_sheet_id:current.id};
+
+   const customEntry={legend_entry:legendEntryId,legendKey:legendEntryId,label:existing?existing.label:entry.label,source_name:entry.sourceName,crop:entry.dataUrl,source_sheet_id:current.id,group:current.group,universal:true};
    window.CUSTOM_LEGEND_ENTRIES=window.CUSTOM_LEGEND_ENTRIES||[];
    window.CUSTOM_LEGEND_ENTRIES.push(customEntry);
-   if(!window.legendList)window.legendList=[];
-   window.legendList.push(customEntry);
+   registry?.add(customEntry);
+
    window.reviewWorkspace?.persist?.();
    window.reviewWorkspace?.populateLegendDropdowns?.();
    const classSelect=document.getElementById('edit-class');
-   if(classSelect){
-    classSelect.value=legendEntryId;
-    classSelect.dispatchEvent(new Event('change'));
-   }
+   if(classSelect){classSelect.value=legendEntryId;classSelect.dispatchEvent(new Event('change'));}
    const labelInput=document.getElementById('edit-label');
-   if(labelInput)labelInput.value=entry.label;
+   if(labelInput)labelInput.value=customEntry.label;
    window.reviewWorkspace?.refreshList?.();
    window.workspaceUI?.show?.(current);
    const status2=document.getElementById('editor-status');
-   if(status2)status2.textContent='"'+entry.label+'" added as a new legend class on this drawing. It now appears in the searchable Legend class list and the drawing legend. Export to keep it.';
+   if(status2)status2.textContent=merged
+    ? '"'+entry.label+'" matched the existing universal symbol "'+existing.label+'". The crop was added to that symbol instead of creating a duplicate class.'
+    : '"'+entry.label+'" added as a new universal legend symbol. It is available on every drawing, not just this one. Export to keep it.';
+   status.textContent=merged
+    ? 'Merged into the existing universal symbol "'+existing.label+'" — no duplicate class was created.'
+    : 'Added "'+entry.label+'" to the universal legend catalogue.';
    document.dispatchEvent(new CustomEvent('legend-entries-changed'));
   }
  };

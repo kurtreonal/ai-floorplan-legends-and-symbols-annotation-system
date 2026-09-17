@@ -214,28 +214,45 @@ async function runTest() {
       (() => {
         const sel = document.getElementById('edit-class');
         const options = Array.from(sel.options).map(o => ({ value: o.value, text: o.text }));
-        const optgroups = Array.from(sel.querySelectorAll('optgroup')).map(g => ({ label: g.label, count: g.children.length }));
-        const groupCounts = {};
-        for (let g = 21; g <= 28; g++) {
-          groupCounts[g] = options.filter(o => o.value.startsWith('sheet-') && window.legendList?.find(l => l.legend_entry === o.value)?.group === g).length;
-        }
+        const values = options.map(o => o.value).filter(Boolean);
+        const legacyProbe = ['sheet-53:L06', 'sheet-56:L06', 'sheet-67:L06'];
         return {
           totalOptions: options.length,
-          optgroups,
-          groupCounts
+          optgroupCount: sel.querySelectorAll('optgroup').length,
+          universalValues: values.every(v => v.startsWith('u:')),
+          duplicateValues: values.length - new Set(values).size,
+          catalogueSize: window.LegendRegistry ? window.LegendRegistry.list().length : -1,
+          legacyResolved: legacyProbe.map(id => window.LegendRegistry?.resolve(id)),
+          sample: options.slice(1, 4).map(o => o.text)
         };
       })()
     `);
-    console.log('Dropdown status:');
+    console.log('Universal legend catalogue status:');
     console.log('  Total options:', dropdownInfo.totalOptions);
-    console.log('  Optgroup count:', dropdownInfo.optgroups.length);
-    console.log('  Sample optgroup labels:', dropdownInfo.optgroups.slice(0, 5).map(g => g.label));
-    console.log('  Legend counts for Groups 21 to 28:');
-    for (let g = 21; g <= 28; g++) {
-      console.log(`    Group ${g}: ${dropdownInfo.groupCounts[g]} classes`);
-      if (dropdownInfo.groupCounts[g] === 0) {
-        throw new Error(`Group ${g} has 0 classes in the legend dropdown!`);
-      }
+    console.log('  Optgroup count:', dropdownInfo.optgroupCount, '(expected 0 - the list is universal, not grouped)');
+    console.log('  Catalogue size (all groups):', dropdownInfo.catalogueSize);
+    console.log('  Options shown for the open drawing\'s group:', dropdownInfo.filteredToGroup);
+    console.log('  Sample options:', dropdownInfo.sample);
+    console.log('  Legacy sheet-scoped ids resolve to:', dropdownInfo.legacyResolved);
+
+    if (dropdownInfo.optgroupCount !== 0) {
+      throw new Error('Legend dropdown still renders per-group optgroups; it must be one universal list.');
+    }
+    if (!dropdownInfo.universalValues) {
+      throw new Error('Legend dropdown contains non-universal option values.');
+    }
+    if (dropdownInfo.duplicateValues !== 0) {
+      throw new Error('Legend dropdown contains ' + dropdownInfo.duplicateValues + ' duplicate symbol entries.');
+    }
+    if (dropdownInfo.totalOptions < 2) {
+      throw new Error('Legend dropdown is empty.');
+    }
+    if (dropdownInfo.filteredToGroup > dropdownInfo.catalogueSize) {
+      throw new Error('Group-scoped legend list is larger than the full universal catalogue - filtering is broken.');
+    }
+    const resolvedSet = new Set(dropdownInfo.legacyResolved);
+    if (resolvedSet.size !== 1 || !dropdownInfo.legacyResolved[0]?.startsWith('u:')) {
+      throw new Error('Sheet-scoped legend ids for the same symbol did not collapse onto one universal key: ' + JSON.stringify(dropdownInfo.legacyResolved));
     }
 
     // Test live search in edit-class-search
