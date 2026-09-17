@@ -68,7 +68,17 @@
           }
           target=newSheet;
         }
-        if(target)target.annotations=C.clone(sheet.annotations);
+        if(target){
+          const baselineSheet=baseline.sheets.find(s=>s.id===target.id);
+          const baselineLegends=(baselineSheet?.annotations||[]).filter(a=>a.layer==='legend'||a.layer==='text');
+          const restoredAnnotations=C.clone(sheet.annotations||[]);
+          const restoredHasLegends=restoredAnnotations.some(a=>a.layer==='legend');
+          if(!restoredHasLegends&&baselineLegends.length>0){
+            target.annotations=[...restoredAnnotations,...C.clone(baselineLegends)];
+          }else{
+            target.annotations=restoredAnnotations;
+          }
+        }
       }
       for(const key of Object.keys(decisions))delete decisions[key];
       Object.assign(decisions,upgraded.decisions||{});
@@ -642,7 +652,7 @@
   resizeStage();
  }
  function resizeStage(){const r=$('canvas').getBoundingClientRect();stage?.size({width:r.width,height:Math.max(420,r.height)});applyView();}
- function load(afterLoad){current=D.sheets.find(r=>r.id===$('sheet').value);rotation=rotationBySheet[current.id]||0;selected=null;multi.clear();$('title').textContent=current.title;$('image-meta').textContent=`${current.filename} · ${current.width} × ${current.height} original pixels · image unchanged`;$('coverage').textContent='Detailed annotations: partial. Human review: pending. Training eligibility: false.';$('decision').value=(decisions[current.id]||{decision:'pending'}).decision;$('notes').value=(decisions[current.id]||{}).notes||'';const img=new Image();img.onload=()=>{imageLayer.destroyChildren();imageLayer.add(new Konva.Image({image:img,x:0,y:0,width:current.width,height:current.height,listening:false}));if(attachedImage)imageLayer.add(new Konva.Image({image:attachedImage,x:0,y:0,width:current.width,height:current.height,opacity:.28,listening:false}));imageLayer.draw();fit();renderMarks();renderList();describeSelection();updateHistoryButtons();if(typeof afterLoad==='function')afterLoad();};img.src=current.image;$('issues').replaceChildren(...[...current.issues,'Full-page symbol, wall/opening and wiring completeness has not been verified.'].map(t=>Object.assign(document.createElement('li'),{textContent:t})));window.referencePanel?.show(current);window.workspaceUI?.show(current);}
+ function load(afterLoad){current=D.sheets.find(r=>r.id===$('sheet').value);rotation=rotationBySheet[current.id]||0;selected=null;multi.clear();$('title').textContent=current.title;$('image-meta').textContent=`${current.filename} · ${current.width} × ${current.height} original pixels · image unchanged`;$('coverage').textContent='Detailed annotations: partial. Human review: pending. Training eligibility: false.';$('decision').value=(decisions[current.id]||{decision:'pending'}).decision;$('notes').value=(decisions[current.id]||{}).notes||'';const img=new Image();img.onload=()=>{imageLayer.destroyChildren();imageLayer.add(new Konva.Image({image:img,x:0,y:0,width:current.width,height:current.height,listening:false}));if(attachedImage)imageLayer.add(new Konva.Image({image:attachedImage,x:0,y:0,width:current.width,height:current.height,opacity:.28,listening:false}));imageLayer.draw();fit();renderMarks();renderList();describeSelection();updateHistoryButtons();if(typeof afterLoad==='function')afterLoad();};img.src=current.image;$('issues').replaceChildren(...[...current.issues,'Full-page symbol, wall/opening and wiring completeness has not been verified.'].map(t=>Object.assign(document.createElement('li'),{textContent:t})));populateLegendDropdowns();window.referencePanel?.show(current);window.workspaceUI?.show(current);}
  function focusLegendSource(sheetId,coords,label){
   const targetSheet=D.sheets.find(s=>s.id===sheetId);
   if(!targetSheet||!Array.isArray(coords)||coords.length<4)return false;
@@ -670,32 +680,66 @@
     for(const s of (baseline?.sheets||[])){
       for(const a of (s.annotations||[]).filter(x=>x.layer==='legend'&&x.legend_entry)){
         if(!legendMap.has(a.legend_entry)){
-          legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,source:'baseline'});
+          legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'baseline'});
         }
       }
     }
     for(const s of (D?.sheets||[])){
       for(const a of (s.annotations||[]).filter(x=>x.layer==='legend'&&x.legend_entry)){
         if(!legendMap.has(a.legend_entry)){
-          legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,source:'sheet'});
+          legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'sheet'});
         }
       }
     }
     for(const entry of [...(window.CUSTOM_LEGEND_ENTRIES||[]),...(window.legendList||[])]){
       const id=entry.legend_entry||entry.legendKey;
       if(id&&!legendMap.has(id)){
-        legendMap.set(id,{legend_entry:id,legendKey:id,label:entry.label||id,group:current?.group||1,source:'custom'});
+        legendMap.set(id,{legend_entry:id,legendKey:id,label:entry.label||id,group:current?.group||1,group_name:'Custom / Uploaded',sheet_id:null,source:'custom'});
       }
     }
     window.legendList=Array.from(legendMap.values());
     sel.replaceChildren(new Option('Unresolved / no clear legend match',''));
-    for(const leg of window.legendList){
-      const text=leg.label+(leg.group!==undefined?' — Group '+leg.group:'');
-      if(term&&!text.toLowerCase().includes(term)&&!leg.legend_entry.toLowerCase().includes(term))continue;
-      const opt=new Option(text,leg.legend_entry);
-      opt.dataset.label=leg.label;
-      sel.append(opt);
+
+    const associatedIds=Array.isArray(current?.associated_legend_ids)?current.associated_legend_ids:[];
+    const isCurrentMatch=leg=>current&&(leg.sheet_id===current.id||associatedIds.includes(leg.sheet_id)||leg.group===current.group);
+
+    if(current&&!term){
+      const activeEntries=window.legendList.filter(isCurrentMatch);
+      if(activeEntries.length>0){
+        const activeGroup=document.createElement('optgroup');
+        activeGroup.label=`Active Drawing / Group ${current.group} (${activeEntries.length})`;
+        for(const leg of activeEntries){
+          const opt=new Option(`${leg.label} [${leg.legend_entry}]`,leg.legend_entry);
+          opt.dataset.label=leg.label;
+          activeGroup.append(opt);
+        }
+        sel.append(activeGroup);
+      }
     }
+
+    const distinctGroups=[...new Set(window.legendList.map(l=>l.group))].sort((a,b)=>a-b);
+    for(const g of distinctGroups){
+      const entries=window.legendList.filter(l=>l.group===g);
+      const filtered=entries.filter(leg=>{
+        if(!term)return true;
+        const text=(leg.label+' '+(leg.group_name||'')+' '+leg.legend_entry+' group '+leg.group).toLowerCase();
+        return text.includes(term);
+      });
+      if(!filtered.length)continue;
+
+      const optgroup=document.createElement('optgroup');
+      const gName=entries[0]?.group_name||`Group ${g}`;
+      optgroup.label=g>=21?`Group ${g} · ${gName}`:`Group ${g} (${filtered.length})`;
+
+      for(const leg of filtered){
+        const text=`${leg.label}${g>=21?'':' — Group '+leg.group}`;
+        const opt=new Option(text,leg.legend_entry);
+        opt.dataset.label=leg.label;
+        optgroup.append(opt);
+      }
+      sel.append(optgroup);
+    }
+
     if(previousValue&&Array.from(sel.options).some(o=>o.value===previousValue))sel.value=previousValue;
   }
   function fillClasses(){populateLegendDropdowns();}
