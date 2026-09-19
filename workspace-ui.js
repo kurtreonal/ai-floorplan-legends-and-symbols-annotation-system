@@ -110,12 +110,13 @@
     });
 
     if(src&&src.uploaded_crop){
+     const isPec=!!(entry.is_pec||src.is_pec||src.origin==='pec'||(src.group_name&&src.group_name.indexOf('PEC')!==-1));
      const img=document.createElement('img');
-     img.src=src.uploaded_crop;img.alt=entry.label+' (uploaded legend crop)';
+     img.src=src.uploaded_crop;img.alt=entry.label+(isPec?' (PEC reference symbol)':' (uploaded legend crop)');
      img.style.cssText='width:100%;height:80px;object-fit:contain;background:#fff';
      card.append(img);
      const tag=document.createElement('small');
-     tag.textContent='Uploaded reference — not part of the original drawing legend.';
+     tag.textContent=isPec?'PEC reference source (Philippine Electrical Code)':'Uploaded reference — not part of the original drawing legend.';
      card.append(tag);
     }else if(src&&src.geometry&&src.geometry.type==='bbox'&&src.sheet_id){
      const sheet=(window.ANNOTATION_DATA.sheets||[]).find(x=>x.id===src.sheet_id);
@@ -150,10 +151,12 @@
     if(drawings>1)parts.push('shared across '+drawings+' drawings');
     if(groupSpan>1&&!parts.some(p=>p.startsWith('Group')))parts.push('used in '+groupSpan+' groups');
     if(entry.usage)parts.push(entry.usage+' placed');
+    if(entry.is_pec)parts.push('PEC reference');
+    else if(entry.custom)parts.push('uploaded');
     meta.textContent=parts.join(' · ')||'not yet placed';
     card.append(meta);
 
-    if(entry.custom){
+    if(entry.custom&&!entry.is_pec){
      const remove=document.createElement('button');
      remove.className='danger small';
      remove.textContent='Delete uploaded legend';

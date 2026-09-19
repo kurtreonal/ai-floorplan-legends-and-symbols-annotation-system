@@ -194,6 +194,39 @@
     return entry;
   };
 
+  /* Ingest a Philippine Electrical Code (PEC) reference entry into the universal catalog. */
+  Registry.prototype.ingestPec = function (pec) {
+    if (!pec) return null;
+    var label = pec.label || pec.legend_entry || pec.legendKey;
+    if (!label) return null;
+    var entry = this._ensure(label, null);
+    if (!entry) return null;
+    entry.is_pec = true;
+    if (pec.id) {
+      this.link(pec.id, entry.key);
+      this.link('u:' + pec.id, entry.key);
+    }
+    if (pec.legend_entry) this.link(pec.legend_entry, entry.key);
+    if (pec.legendKey) this.link(pec.legendKey, entry.key);
+    var crop = pec.crop || (pec.id ? 'references/pec/' + pec.id + '.png' : null);
+    if (crop && !entry.sources.some(function (s) { return s.uploaded_crop === crop; })) {
+      entry.sources.push({
+        sheet_id: pec.source_id || null,
+        group: null,
+        group_name: pec.source_name || 'PEC Reference (Philippine Electrical Code)',
+        annotation_id: null,
+        geometry: null,
+        uploaded_crop: crop,
+        label: entry.label,
+        origin: 'pec',
+        is_pec: true,
+        locator: pec.locator || null
+      });
+      if (pec.source_id) entry.sheetIds.add(pec.source_id);
+    }
+    return entry;
+  };
+
   /* Public "add a legend" path. Returns the entry it merged into, so callers
    * can tell the user whether a new symbol was created or an existing
    * universal symbol was reused. */
@@ -243,6 +276,16 @@
     }
     scan(opts.baseline && opts.baseline.sheets, 'baseline');
     scan(opts.data && opts.data.sheets, 'sheet');
+
+    var pecItems = opts.pec || (opts.references ? opts.references.filter(function (e) {
+      return e && (e.family === 'pec' || (e.id && e.id.indexOf('pec-') === 0) || (e.source_id && e.source_id.indexOf('pec-') === 0));
+    }) : null);
+    if (!pecItems && typeof window !== 'undefined' && window.REFERENCE_LIBRARY && Array.isArray(window.REFERENCE_LIBRARY.entries)) {
+      pecItems = window.REFERENCE_LIBRARY.entries.filter(function (e) {
+        return e && (e.family === 'pec' || (e.id && e.id.indexOf('pec-') === 0) || (e.source_id && e.source_id.indexOf('pec-') === 0));
+      });
+    }
+    (pecItems || []).forEach(function (p) { self.ingestPec(p); });
 
     (opts.custom || []).forEach(function (c) { self.ingestCustom(c); });
 

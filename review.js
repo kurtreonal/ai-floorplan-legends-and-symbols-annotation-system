@@ -845,11 +845,17 @@
     // One universal catalogue: every legend row on every sheet, from every group,
     // plus every uploaded crop, folded onto one entry per distinct symbol.
     if(registry){
-      registry.rebuild({baseline,data:D,custom:window.CUSTOM_LEGEND_ENTRIES||[]});
+      registry.rebuild({
+        baseline,
+        data:D,
+        custom:window.CUSTOM_LEGEND_ENTRIES||[],
+        pec:(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.id?.startsWith('pec-')||e.source_id?.startsWith('pec-'))
+      });
       window.legendList=registry.list().map(e=>({
         legend_entry:e.key,legendKey:e.key,key:e.key,label:e.label,
         aliases:Array.from(e.aliases),sources:e.sources,
         sheet_ids:Array.from(e.sheetIds),usage:e.usage||0,custom:!!e.custom,
+        is_pec:!!e.is_pec,
         universal:true
       }));
     }else{
@@ -866,6 +872,13 @@
           if(!legendMap.has(a.legend_entry)){
             legendMap.set(a.legend_entry,{legend_entry:a.legend_entry,legendKey:a.legend_entry,label:a.label||a.legend_entry,group:s.group,group_name:s.group_name||s.title||('Group '+s.group),sheet_id:s.id,source:'sheet'});
           }
+        }
+      }
+      const pecList=(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.id?.startsWith('pec-')||e.source_id?.startsWith('pec-'));
+      for(const p of pecList){
+        const id='u:'+p.id;
+        if(!legendMap.has(id)){
+          legendMap.set(id,{legend_entry:id,legendKey:id,label:p.label||id,group:null,group_name:'PEC Reference',sheet_id:p.source_id,source:'pec',is_pec:true,crop:p.crop});
         }
       }
       for(const entry of [...(window.CUSTOM_LEGEND_ENTRIES||[]),...(window.legendList||[])]){
@@ -894,7 +907,8 @@
       else if(inSelectedGroup&&current?.group!=null)bits.push('Group '+current.group);
       if(drawings>1)bits.push(drawings+' drawings');
       if(e.usage)bits.push(e.usage+' placed');
-      if(e.custom)bits.push('uploaded');
+      if(e.is_pec)bits.push('PEC reference');
+      else if(e.custom)bits.push('uploaded');
       const opt=new Option(e.label+(bits.length?'  ·  '+bits.join(' · '):''),e.key);
       opt.dataset.label=e.label;
       opt.dataset.universal='1';
