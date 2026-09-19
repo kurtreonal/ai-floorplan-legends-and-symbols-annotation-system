@@ -31,4 +31,90 @@ html[data-theme="dark"]{--bg:#0e1713;--surface:#152019;--surface-2:#1b2a22;--sur
 .wall-type-chip-indicator{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;margin-top:3px}
 .wall-type-chip:last-child:nth-child(odd){grid-column:1 / -1}
 
+/* Full screen workspace mode */
+html.workspace-fullscreen,
+body.workspace-fullscreen {
+  overflow: hidden !important;
+  height: 100vh !important;
+  width: 100vw !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+html.workspace-fullscreen header {
+  padding: 8px 18px !important;
+  min-height: 42px !important;
+}
+
+html.workspace-fullscreen header h1 {
+  font-size: 15px !important;
+}
+
+html.workspace-fullscreen header #counts {
+  display: none !important;
+}
+
+html.workspace-fullscreen .pagebar {
+  padding: 6px 18px !important;
+  gap: 8px !important;
+}
+
+html.workspace-fullscreen .pagebar select,
+html.workspace-fullscreen .pagebar button,
+html.workspace-fullscreen .pagebar label {
+  min-height: 32px !important;
+}
+
+html.workspace-fullscreen .grid {
+  height: calc(100vh - 102px) !important;
+  padding: 8px 18px 10px !important;
+  gap: 12px !important;
+  grid-template-columns: minmax(0, 1fr) 360px !important;
+  align-items: stretch !important;
+  overflow: hidden !important;
+}
+
+html.workspace-fullscreen .grid.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+html.workspace-fullscreen .grid.sidebar-collapsed .sidebar {
+  display: none !important;
+}
+
+html.workspace-fullscreen .canvaswrap {
+  position: relative !important;
+  top: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+  min-height: 0 !important;
+}
+
+html.workspace-fullscreen #canvas {
+  flex: 1 1 auto !important;
+  height: 100% !important;
+  min-height: 0 !important;
+  max-height: none !important;
+}
+
+html.workspace-fullscreen .sidebar {
+  height: 100% !important;
+  max-height: 100% !important;
+  overflow-y: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+html.workspace-fullscreen .sidebar #panel-edit,
+html.workspace-fullscreen .sidebar #panel-legends,
+html.workspace-fullscreen .sidebar #panel-review {
+  overflow-y: auto !important;
+  flex: 1 1 auto !important;
+}
+
+html.workspace-fullscreen .summary {
+  display: none !important;
+}
+
 
