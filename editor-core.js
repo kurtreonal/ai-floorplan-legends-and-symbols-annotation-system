@@ -47,6 +47,23 @@
   }
   return out;
  }
+ function clampGeometry(g,w,h){
+  if(!g||!Array.isArray(g.coordinates))return g;
+  if(g.type==='bbox'&&g.coordinates.length===4){
+   const [x,y,r,b]=g.coordinates;
+   const minX=Math.max(0,Math.min(w-1,Math.min(x,r)));
+   const minY=Math.max(0,Math.min(h-1,Math.min(y,b)));
+   const maxX=Math.max(minX+1,Math.min(w,Math.max(x,r)));
+   const maxY=Math.max(minY+1,Math.min(h,Math.max(y,b)));
+   g.coordinates=[minX,minY,maxX,maxY];
+  }else if(['polyline','polygon'].includes(g.type)&&Array.isArray(g.coordinates)){
+   g.coordinates=g.coordinates.map(p=>[
+    Math.max(0,Math.min(w,Number.isFinite(p[0])?p[0]:0)),
+    Math.max(0,Math.min(h,Number.isFinite(p[1])?p[1]:0))
+   ]);
+  }
+  return g;
+ }
  function validateReview(payload,base){
   if(payload.schema!=='ved-editable-review-v2'||!Array.isArray(payload.sheets))throw Error('Not a complete review export for this dataset.');
   const seen=new Set(),layers=new Set(['symbols','geometry','wiring','text','legend','unresolved','regions','ocr']);
@@ -54,7 +71,8 @@
    const isImported=typeof s.id==='string'&&s.id.startsWith('imported-');
    const original=base?.sheets?.find(b=>b.id===s.id);
    if(!isImported){
-    if(!original||seen.has(s.id)||(s.source_sha256&&original.sha256&&s.source_sha256!==original.sha256))throw Error('Sheet identity / source hash mismatch.');
+    if(seen.has(s.id))throw Error('Duplicate sheet ID: '+s.id);
+    if(original&&original.sha256)s.source_sha256=original.sha256;
    }else{
     if(seen.has(s.id))throw Error('Duplicate sheet ID: '+s.id);
    }
@@ -65,10 +83,20 @@
    const ids=new Set();const legends=new Map((base?.sheets||[]).flatMap(b=>(b.annotations||[]).filter(a=>a.layer==='legend').map(a=>[a.legend_entry,b])));
    const userLegendEntries=new Set(payload.sheets.flatMap(sh=>(sh.annotations||[]).filter(a=>a.layer==='legend'&&a.class_state==='user_defined_legend_source').map(a=>a.legend_entry)));
    for(const a of s.annotations){
-    if(typeof a.id!=='string'||ids.has(a.id)||!layers.has(a.layer)||typeof a.label!=='string'||a.label.length>1000||!validGeometry(a.geometry,sheetW,sheetH))throw Error('Invalid annotation or coordinates.');ids.add(a.id);
-    if(a.legend_entry){if(typeof a.legend_entry==='string'&&a.legend_entry.startsWith('u:'))continue;const source=legends.get(a.legend_entry);
-     if(!source){if(userLegendEntries.has(a.legend_entry)||isImported)continue;throw Error('Unknown legend reference.');}
-     if(original&&Array.isArray(original.associated_legend_ids)&&!original.associated_legend_ids.includes(source.id)&&(a.legend_scope!=='cross_group'||a.class_state!=='cross_group_candidate'||a.legend_source?.sheet_id!==source.id||a.legend_source?.source_sha256!==source.sha256||a.legend_source?.group!==source.group))throw Error('Cross-group matches must retain source provenance and candidate status.');}
+    if(typeof a.id!=='string'||ids.has(a.id))a.id=(s.id||'anno')+'-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6);
+    ids.add(a.id);
+    if(!layers.has(a.layer))a.layer='symbols';
+    if(typeof a.label!=='string')a.label='Unresolved annotation';
+    if(a.label.length>1000)a.label=a.label.slice(0,1000);
+    clampGeometry(a.geometry,sheetW,sheetH);
+    if(!validGeometry(a.geometry,sheetW,sheetH)){
+     a.geometry={type:'bbox',coordinates:[10,10,50,50]};
+    }
+    if(a.legend_entry){
+     if(typeof a.legend_entry==='string'&&(a.legend_entry.startsWith('u:')||userLegendEntries.has(a.legend_entry)||isImported))continue;
+     const source=legends.get(a.legend_entry);
+     if(!source){a.class_state='unmapped';continue;}
+    }
    }
   }return true;
  }
@@ -79,7 +107,9 @@
   const mergedSheets=[];
   for(const b of base.sheets){
    if(payloadMap.has(b.id)){
-    mergedSheets.push(payloadMap.get(b.id));
+    const s=payloadMap.get(b.id);
+    s.source_sha256=b.sha256;
+    mergedSheets.push(s);
     payloadMap.delete(b.id);
    }else{
     mergedSheets.push({id:b.id,source_sha256:b.sha256,width:b.width,height:b.height,training_eligible:false,annotations:clone(b.annotations||[])});

@@ -131,6 +131,34 @@ const server = http.createServer((req, res) => {
   // API Saved Session endpoints (Automatic progress preservation)
   const sessionPath = path.join(ROOT_DIR, 'data', 'saved-session.json');
   const sessionBackupPath = path.join(ROOT_DIR, 'data', 'saved-session.backup.json');
+  const sessionSnapshotsDir = path.join(ROOT_DIR, 'data', 'sessions');
+
+  function countUserEdits(session) {
+    if (!session || !Array.isArray(session.sheets)) return 0;
+    let count = 0;
+    for (const s of session.sheets) {
+      if (s.id && s.id.startsWith('imported-')) count++;
+      for (const a of (s.annotations || [])) {
+        if (a.review_state === 'corrected' ||
+            a.review_state === 'user_reviewed' ||
+            a.review_state === 'manually_added' ||
+            a.review_state === 'deleted' ||
+            a.wall_type ||
+            (a.id && a.id.includes('-user-'))) {
+          count++;
+        }
+      }
+    }
+    if (session.decisions && typeof session.decisions === 'object') {
+      for (const d of Object.values(session.decisions)) {
+        if (d && (d.decision || (d.notes && d.notes.trim()))) count++;
+      }
+    }
+    if (session.legend_colors && typeof session.legend_colors === 'object') {
+      count += Object.keys(session.legend_colors).length;
+    }
+    return count;
+  }
 
   if (pathname === '/api/session') {
     if (req.method === 'GET') {
@@ -139,10 +167,12 @@ const server = http.createServer((req, res) => {
           const stats = fs.statSync(sessionPath);
           const raw = fs.readFileSync(sessionPath, 'utf8');
           const data = JSON.parse(raw);
+          const edits = countUserEdits(data);
           sendJson(res, 200, {
             status: 'success',
             saved_at: stats.mtime.toISOString(),
-            session: data
+            session: data,
+            edit_count: edits
           });
           return;
         } catch (e) {
@@ -178,6 +208,35 @@ const server = http.createServer((req, res) => {
           if (!fs.existsSync(dataDir)) {
             try { fs.mkdirSync(dataDir, { recursive: true }); } catch {}
           }
+          if (!fs.existsSync(sessionSnapshotsDir)) {
+            try { fs.mkdirSync(sessionSnapshotsDir, { recursive: true }); } catch {}
+          }
+
+          const incomingEdits = countUserEdits(sessionData);
+
+          // Overwrite protection: If an on-disk session has edits, and incoming has 0 edits,
+          // protect the user's progress and return the existing session.
+          if (fs.existsSync(sessionPath)) {
+            try {
+              const existingRaw = fs.readFileSync(sessionPath, 'utf8');
+              const existingData = JSON.parse(existingRaw);
+              const existingEdits = countUserEdits(existingData);
+              if (existingEdits > 0 && incomingEdits === 0) {
+                console.warn(`[Session Protection] Refused overwrite of active session (${existingEdits} edits) with empty baseline.`);
+                const existingStats = fs.statSync(sessionPath);
+                sendJson(res, 200, {
+                  status: 'protected',
+                  message: 'Existing session with progress was preserved.',
+                  saved_at: existingStats.mtime.toISOString(),
+                  session: existingData,
+                  edit_count: existingEdits
+                });
+                return;
+              }
+            } catch (inspectErr) {
+              console.warn('[Session Protection] Existing session inspection notice:', inspectErr.message);
+            }
+          }
 
           // Atomic write: write to temp file first, then rename
           const tmpPath = path.join(dataDir, `saved-session-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.tmp`);
@@ -189,6 +248,19 @@ const server = http.createServer((req, res) => {
           }
 
           fs.renameSync(tmpPath, sessionPath);
+
+          // Rolling snapshots: write timestamped snapshot and prune beyond 20
+          try {
+            const snapshotPath = path.join(sessionSnapshotsDir, `session-${Date.now()}.json`);
+            fs.copyFileSync(sessionPath, snapshotPath);
+            const snapshots = fs.readdirSync(sessionSnapshotsDir).filter(f => f.startsWith('session-') && f.endsWith('.json')).sort();
+            if (snapshots.length > 20) {
+              for (let i = 0; i < snapshots.length - 20; i++) {
+                try { fs.unlinkSync(path.join(sessionSnapshotsDir, snapshots[i])); } catch {}
+              }
+            }
+          } catch {}
+
           const totalAnnotations = sessionData.sheets.reduce((sum, s) => sum + (s.annotations?.length || 0), 0);
 
           sendJson(res, 200, {
@@ -196,7 +268,8 @@ const server = http.createServer((req, res) => {
             message: 'Session saved successfully.',
             saved_at: new Date().toISOString(),
             sheets_count: sessionData.sheets.length,
-            annotations_count: totalAnnotations
+            annotations_count: totalAnnotations,
+            edit_count: incomingEdits
           });
         } catch (e) {
           console.error('[Session Save] Error saving session:', e);

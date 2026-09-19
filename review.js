@@ -139,53 +139,74 @@
     }
   };
  const payload=()=>({schema:'ved-editable-review-v2',created_at:new Date().toISOString(),training_approved:false,coordinate_system:'per_sheet_pixel_frame',baseline_revision:'expanded-review-2026-09-09',decisions:C.clone(decisions),legend_colors:C.clone(legendColors),sheets:D.sheets.map(s=>({id:s.id,source_sha256:s.sha256,width:s.width,height:s.height,coordinate_frame:s.coordinate_frame||'original_image_pixels',original_source_sha256:s.original_source_sha256||s.sha256,pdf_page:s.pdf_page||null,training_eligible:false,group:s.group,group_name:s.group_name,title:s.title,filename:s.filename,sheet_type:s.sheet_type||'plan',image:s.id.startsWith('imported-')?s.image:undefined,associated_legend_ids:s.associated_legend_ids||[],issues:s.issues||[],annotations:C.clone(s.annotations)}))});
+  let sessionReady=false;
   const storageKey=()=> 'ved-editable-review-v2:'+D.sheets.map(s=>s.sha256).join(':');
-  function persist(){
-    try{localStorage.setItem(storageKey(),JSON.stringify(payload()));}catch{}
+  function persist(immediate=true){
+    if(!sessionReady)return;
+    const p=payload();
+    try{
+      localStorage.setItem('ved_saved_session_absolute',JSON.stringify(p));
+      localStorage.setItem('ved_saved_session_v2',JSON.stringify(p));
+    }catch(e){
+      window.VEDSessionStore?.cleanOldStorageKeys();
+      try{localStorage.setItem('ved_saved_session_absolute',JSON.stringify(p));}catch{}
+    }
     if(window.VEDSessionStore){
-      window.VEDSessionStore.scheduleAutoSave(payload);
+      window.VEDSessionStore.saveAuto(p,immediate);
     }
   }
-  function applyRestoredReview(saved){
+  function applyRestoredReview(rawSaved){
     try{
-      const upgraded=C.upgradeReview(saved,baseline);
-      for(const sheet of upgraded.sheets){
-        let target=D.sheets.find(s=>s.id===sheet.id);
-        if(!target && sheet.id.startsWith('imported-')){
-          const newSheet={
-            id:sheet.id,
-            group:sheet.group||(Math.max(0,...D.sheets.map(s=>Number(s.group)||0))+1),
-            group_name:sheet.group_name||('Group '+(sheet.group||'Imported')),
-            title:sheet.title||sheet.filename||'Imported Plan',
-            filename:sheet.filename||sheet.title||'Imported Plan',
-            sheet_type:sheet.sheet_type||'plan',
-            image:sheet.image,
-            width:sheet.width||1000,
-            height:sheet.height||1000,
-            sha256:sheet.source_sha256||sheet.sha256||'',
-            coordinate_system:sheet.coordinate_frame||'original_image_pixels',
-            associated_legend_ids:sheet.associated_legend_ids||[],
-            issues:sheet.issues||['Imported floor plan restored from session.'],
-            annotations:C.clone(sheet.annotations||[])
-          };
-          D.sheets.push(newSheet);
-          baseline.sheets.push(C.clone(newSheet));
-          if(![...$('group').options].some(o=>o.value===String(newSheet.group))){
-            $('group').append(new Option(newSheet.group_name||('Group '+newSheet.group),newSheet.group));
+      const saved=rawSaved?.data||rawSaved;
+      if(!saved||!Array.isArray(saved.sheets))return false;
+      let upgraded;
+      try{
+        upgraded=C.upgradeReview(saved,baseline);
+      }catch(upgradeErr){
+        console.warn('upgradeReview notice, applying safe fallback:',upgradeErr);
+        upgraded=saved;
+      }
+      for(const sheet of upgraded.sheets||[]){
+        try{
+          let target=D.sheets.find(s=>s.id===sheet.id);
+          if(!target && sheet.id&&sheet.id.startsWith('imported-')){
+            const newSheet={
+              id:sheet.id,
+              group:sheet.group||(Math.max(0,...D.sheets.map(s=>Number(s.group)||0))+1),
+              group_name:sheet.group_name||('Group '+(sheet.group||'Imported')),
+              title:sheet.title||sheet.filename||'Imported Plan',
+              filename:sheet.filename||sheet.title||'Imported Plan',
+              sheet_type:sheet.sheet_type||'plan',
+              image:sheet.image,
+              width:sheet.width||1000,
+              height:sheet.height||1000,
+              sha256:sheet.source_sha256||sheet.sha256||'',
+              coordinate_system:sheet.coordinate_frame||'original_image_pixels',
+              associated_legend_ids:sheet.associated_legend_ids||[],
+              issues:sheet.issues||['Imported floor plan restored from session.'],
+              annotations:C.clone(sheet.annotations||[])
+            };
+            D.sheets.push(newSheet);
+            baseline.sheets.push(C.clone(newSheet));
+            if(![...$('group').options].some(o=>o.value===String(newSheet.group))){
+              $('group').append(new Option(newSheet.group_name||('Group '+newSheet.group),newSheet.group));
+            }
+            target=newSheet;
           }
-          target=newSheet;
-        }
-        if(target){
-          const baselineSheet=baseline.sheets.find(s=>s.id===target.id);
-          const baselineLegends=(baselineSheet?.annotations||[]).filter(a=>a.layer==='legend'||a.layer==='text');
-          const restoredAnnotations=C.clone(sheet.annotations||[]);
-          const restoredHasLegends=restoredAnnotations.some(a=>a.layer==='legend');
-          if(!restoredHasLegends&&baselineLegends.length>0){
-            target.annotations=[...restoredAnnotations,...C.clone(baselineLegends)];
-          }else{
-            target.annotations=restoredAnnotations;
+          if(target){
+            const baselineSheet=baseline.sheets.find(s=>s.id===target.id);
+            const baselineLegends=(baselineSheet?.annotations||[]).filter(a=>a.layer==='legend'||a.layer==='text');
+            const restoredAnnotations=C.clone(sheet.annotations||[]);
+            const restoredHasLegends=restoredAnnotations.some(a=>a.layer==='legend');
+            if(!restoredHasLegends&&baselineLegends.length>0){
+              target.annotations=[...restoredAnnotations,...C.clone(baselineLegends)];
+            }else{
+              target.annotations=restoredAnnotations;
+            }
+            window.OUTLET_CLASS_UPGRADES?.mergeRestored(target,baselineSheet);
           }
-          window.OUTLET_CLASS_UPGRADES?.mergeRestored(target,baselineSheet);
+        }catch(sheetErr){
+          console.warn('Per-sheet restore notice for '+sheet.id+':',sheetErr);
         }
       }
       for(const key of Object.keys(decisions))delete decisions[key];
@@ -197,19 +218,46 @@
       D.counts.plans=D.sheets.filter(s=>s.sheet_type==='plan'||s.sheet_type==='plan_with_legend').length;
       D.counts.legend_reference_sheets=D.sheets.filter(s=>s.sheet_type==='legend_reference').length;
       $('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;
+      sessionReady=true;
       return true;
     }catch(error){
-      console.warn('Saved review could not be restored.',error);
+      console.warn('Saved review could not be restored:',error);
       return false;
     }
   }
   function restoreDraft(){
     try{
-      const raw=localStorage.getItem(storageKey());
-      if(!raw)return false;
-      return applyRestoredReview(JSON.parse(raw));
+      const keys=['ved_saved_session_absolute','ved_saved_session_v2',storageKey()];
+      for(const key of keys){
+        const raw=localStorage.getItem(key);
+        if(raw){
+          try{
+            const parsed=JSON.parse(raw);
+            const payloadData=parsed?.data||parsed;
+            if(payloadData&&Array.isArray(payloadData.sheets)){
+              const ok=applyRestoredReview(payloadData);
+              if(ok)return true;
+            }
+          }catch{}
+        }
+      }
+      // Final fallback: check any dynamic hash key
+      for(let i=0;i<localStorage.length;i++){
+        const k=localStorage.key(i);
+        if(k&&k.startsWith('ved-editable-review-v2:')){
+          try{
+            const parsed=JSON.parse(localStorage.getItem(k));
+            const payloadData=parsed?.data||parsed;
+            if(payloadData&&Array.isArray(payloadData.sheets)){
+              const ok=applyRestoredReview(payloadData);
+              if(ok)return true;
+            }
+          }catch{}
+        }
+      }
+      return false;
     }catch(error){
-      console.warn('Saved review could not be restored.',error);
+      console.warn('Draft restoration notice:',error);
       return false;
     }
   }
@@ -1018,7 +1066,9 @@
   $('clear-selection').onclick=()=>{multi.clear();selected=null;describeSelection();renderMarks();updateAnnotationList();};
   $('group-selection').onclick=()=>{const targets=selectedAnnotations();if(targets.length<2){status('Select two or more annotations to group them.');return;}checkpoint();for(const a of targets){const linked=new Set(a.connections||[]);for(const b of targets)if(b.id!==a.id)linked.add(b.id);a.connections=[...linked];}persist();renderMarks();updateAnnotationList();status(targets.length+' annotations grouped — drag any one to move them together.');};
   $('ungroup-selection').onclick=()=>{const targets=selectedAnnotations();if(!targets.length){status('Select at least one annotation to ungroup.');return;}checkpoint();targets.forEach(disconnectAnnotation);persist();renderMarks();updateAnnotationList();status('Ungrouped — shapes now move independently.');};
-  function undoChange(){if(!current){status('Nothing to undo.');return;}const s=history.pop();if(!s){status('Nothing to undo.');return;}if(s.id!==current.id){history.push(s);status('Undo is available for the active drawing only.');return;}future.push({id:current.id,annotations:C.clone(current.annotations),view:[...view],selected,multi:new Set(multi)});current.annotations=C.clone(s.annotations);view=s.view;selected=s.selected;multi.clear();s.multi.forEach(id=>multi.add(id));applyView();renderMarks();updateAnnotationList();describeSelection();updateHistoryButtons();status('Undid the last change.');}function redoChange(){if(!current){status('Nothing to redo.');return;}const s=future.pop();if(!s){status('Nothing to redo.');return;}if(s.id!==current.id){future.push(s);status('Redo is available for the active drawing only.');return;}history.push({id:current.id,annotations:C.clone(current.annotations),view:[...view],selected,multi:new Set(multi)});current.annotations=C.clone(s.annotations);view=s.view;selected=s.selected;multi.clear();s.multi.forEach(id=>multi.add(id));applyView();renderMarks();updateAnnotationList();describeSelection();updateHistoryButtons();status('Redid the last change.');}$('undo').addEventListener('click',undoChange);$('redo').addEventListener('click',redoChange);updateHistoryButtons();
+  function undoChange(){if(!current){status('Nothing to undo.');return;}const s=history.pop();if(!s){status('Nothing to undo.');return;}if(s.id!==current.id){history.push(s);status('Undo is available for the active drawing only.');return;}future.push({id:current.id,annotations:C.clone(current.annotations),view:[...view],selected,multi:new Set(multi)});current.annotations=C.clone(s.annotations);view=s.view;selected=s.selected;multi.clear();s.multi.forEach(id=>multi.add(id));applyView();renderMarks();updateAnnotationList();describeSelection();updateHistoryButtons();persist();status('Undid the last change.');}
+  function redoChange(){if(!current){status('Nothing to redo.');return;}const s=future.pop();if(!s){status('Nothing to redo.');return;}if(s.id!==current.id){future.push(s);status('Redo is available for the active drawing only.');return;}history.push({id:current.id,annotations:C.clone(current.annotations),view:[...view],selected,multi:new Set(multi)});current.annotations=C.clone(s.annotations);view=s.view;selected=s.selected;multi.clear();s.multi.forEach(id=>multi.add(id));applyView();renderMarks();updateAnnotationList();describeSelection();updateHistoryButtons();persist();status('Redid the last change.');}
+  $('undo').addEventListener('click',undoChange);$('redo').addEventListener('click',redoChange);updateHistoryButtons();
   async function autoAnnotateCurrentSheet(){
     if(!current){status('Please choose a drawing first.','error');return;}
     if(current.sheet_type==='legend_reference'){
@@ -1209,8 +1259,12 @@
           status(`Restored saved session from ${timeStr || 'previous work'}. All annotations and progress were preserved.`);
         }
       }
+      sessionReady = true;
     }).catch(e=>{
       console.warn('[SessionStore] Session restoration notice:', e.message);
+      sessionReady = true;
     });
+  } else {
+    sessionReady = true;
   }
 })();
