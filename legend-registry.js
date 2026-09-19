@@ -56,6 +56,15 @@
     return canonicalize(label).replace(/-/g, '');
   }
 
+  function tokenKey(label) {
+    if (label == null) return '';
+    return canonicalize(label)
+      .split('-')
+      .filter(function (t) { return t && !NOISE.has(t); })
+      .sort()
+      .join('-');
+  }
+
   function isUniversalKey(id) {
     return typeof id === 'string' && id.indexOf(PREFIX) === 0;
   }
@@ -64,6 +73,7 @@
     this.entries = new Map();   // universalKey -> entry
     this.aliases = new Map();   // legacy legend_entry id -> universalKey
     this.byMatch = new Map();   // separator-free match slug -> universalKey
+    this.byTokens = new Map();  // sorted token slug -> universalKey
     this.generation = 0;
   }
 
@@ -74,6 +84,18 @@
   Registry.prototype._ensure = function (label, key) {
     var k = key || keyFor(label);
     if (!k) return null;
+
+    // First check exact token permutation matching (e.g. "Two-pole switch (S2P)" vs "Switch two-pole (S2P)")
+    var tk = tokenKey(label || k.slice(PREFIX.length));
+    if (tk && this.byTokens.has(tk)) {
+      var canonicalByToken = this.byTokens.get(tk);
+      if (canonicalByToken !== k) {
+        this.aliases.set(k, canonicalByToken);
+        var ownerByToken = this.entries.get(canonicalByToken);
+        if (ownerByToken) ownerByToken.aliases.add(k);
+        k = canonicalByToken;
+      }
+    }
 
     // Fold compound-word / spacing variants onto the first spelling seen.
     var mk = matchKey(label || k.slice(PREFIX.length));
@@ -87,6 +109,10 @@
       }
     } else if (mk) {
       this.byMatch.set(mk, k);
+    }
+
+    if (tk && !this.byTokens.has(tk)) {
+      this.byTokens.set(tk, k);
     }
 
     var entry = this.entries.get(k);
@@ -227,6 +253,39 @@
     return entry;
   };
 
+  /* Ingest a project drawing-specific reference entry into the universal catalog. */
+  Registry.prototype.ingestDrawingSpecific = function (item) {
+    if (!item) return null;
+    var label = item.label || item.legend_entry || item.legendKey;
+    if (!label) return null;
+    var entry = this._ensure(label, null);
+    if (!entry) return null;
+    entry.is_drawing_specific = true;
+    if (item.id) {
+      this.link(item.id, entry.key);
+      this.link('u:' + item.id, entry.key);
+    }
+    if (item.legend_entry) this.link(item.legend_entry, entry.key);
+    if (item.legendKey) this.link(item.legendKey, entry.key);
+    var crop = item.crop || (item.id ? 'references/' + item.id + '.png' : null);
+    if (crop && !entry.sources.some(function (s) { return s.uploaded_crop === crop; })) {
+      entry.sources.push({
+        sheet_id: item.source_id || null,
+        group: null,
+        group_name: item.source_name || ('Drawing Specific Reference (' + (item.source_id || 'Project') + ')'),
+        annotation_id: null,
+        geometry: null,
+        uploaded_crop: crop,
+        label: entry.label,
+        origin: 'drawing',
+        is_drawing_specific: true,
+        locator: item.locator || null
+      });
+      if (item.source_id) entry.sheetIds.add(item.source_id);
+    }
+    return entry;
+  };
+
   /* Public "add a legend" path. Returns the entry it merged into, so callers
    * can tell the user whether a new symbol was created or an existing
    * universal symbol was reused. */
@@ -265,6 +324,7 @@
     this.entries.clear();
     this.aliases.clear();
     this.byMatch.clear();
+    this.byTokens.clear();
 
     var self = this;
     function scan(sheets, origin) {
@@ -286,6 +346,16 @@
       });
     }
     (pecItems || []).forEach(function (p) { self.ingestPec(p); });
+
+    var drawingItems = opts.drawingSpecific || (opts.references ? opts.references.filter(function (e) {
+      return e && (e.family === 'drawing' || e.role === 'drawing_specific_reference_only' || (e.source_id && (e.source_id.indexOf('cogeo') === 0 || e.source_id.indexOf('bdo') === 0)));
+    }) : null);
+    if (!drawingItems && typeof window !== 'undefined' && window.REFERENCE_LIBRARY && Array.isArray(window.REFERENCE_LIBRARY.entries)) {
+      drawingItems = window.REFERENCE_LIBRARY.entries.filter(function (e) {
+        return e && (e.family === 'drawing' || e.role === 'drawing_specific_reference_only' || (e.source_id && (e.source_id.indexOf('cogeo') === 0 || e.source_id.indexOf('bdo') === 0)));
+      });
+    }
+    (drawingItems || []).forEach(function (d) { self.ingestDrawingSpecific(d); });
 
     (opts.custom || []).forEach(function (c) { self.ingestCustom(c); });
 

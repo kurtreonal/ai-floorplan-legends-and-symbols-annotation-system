@@ -843,19 +843,23 @@
     const previousValue=sel.value;
     const term=(filterQuery!==undefined?filterQuery:($('edit-class-search')?.value||'')).toLowerCase().trim();
     // One universal catalogue: every legend row on every sheet, from every group,
-    // plus every uploaded crop, folded onto one entry per distinct symbol.
+    // plus every uploaded crop, PEC references, and drawing-specific references,
+    // folded onto one entry per distinct symbol to eliminate duplicates.
     if(registry){
       registry.rebuild({
         baseline,
         data:D,
         custom:window.CUSTOM_LEGEND_ENTRIES||[],
-        pec:(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.id?.startsWith('pec-')||e.source_id?.startsWith('pec-'))
+        pec:(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.family==='pec'||e.id?.startsWith('pec-')||e.source_id?.startsWith('pec-')),
+        drawingSpecific:(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.family==='drawing'||e.role==='drawing_specific_reference_only'||e.source_id?.startsWith('cogeo')||e.source_id?.startsWith('bdo')),
+        references:window.REFERENCE_LIBRARY?.entries||[]
       });
       window.legendList=registry.list().map(e=>({
         legend_entry:e.key,legendKey:e.key,key:e.key,label:e.label,
         aliases:Array.from(e.aliases),sources:e.sources,
         sheet_ids:Array.from(e.sheetIds),usage:e.usage||0,custom:!!e.custom,
         is_pec:!!e.is_pec,
+        is_drawing_specific:!!e.is_drawing_specific,
         universal:true
       }));
     }else{
@@ -874,11 +878,18 @@
           }
         }
       }
-      const pecList=(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.id?.startsWith('pec-')||e.source_id?.startsWith('pec-'));
+      const pecList=(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.family==='pec'||e.id?.startsWith('pec-')||e.source_id?.startsWith('pec-'));
       for(const p of pecList){
         const id='u:'+p.id;
         if(!legendMap.has(id)){
           legendMap.set(id,{legend_entry:id,legendKey:id,label:p.label||id,group:null,group_name:'PEC Reference',sheet_id:p.source_id,source:'pec',is_pec:true,crop:p.crop});
+        }
+      }
+      const drawingList=(window.REFERENCE_LIBRARY?.entries||[]).filter(e=>e.family==='drawing'||e.role==='drawing_specific_reference_only'||e.source_id?.startsWith('cogeo')||e.source_id?.startsWith('bdo'));
+      for(const d of drawingList){
+        const id='u:'+d.id;
+        if(!legendMap.has(id)){
+          legendMap.set(id,{legend_entry:id,legendKey:id,label:d.label||id,group:null,group_name:'Drawing-Specific Reference',sheet_id:d.source_id,source:'drawing',is_drawing_specific:true,crop:d.crop});
         }
       }
       for(const entry of [...(window.CUSTOM_LEGEND_ENTRIES||[]),...(window.legendList||[])]){
@@ -898,7 +909,10 @@
       return 2;
     };
     const entries=registry?registry.list(term).sort((a,b)=>ranked(a)-ranked(b)||a.label.localeCompare(b.label)):[];
+    const seenClassKeys=new Set();
     for(const e of entries){
+      if(seenClassKeys.has(e.key)) continue;
+      seenClassKeys.add(e.key);
       const onSheet=current&&registry.isUsedOn(e.key,current.id);
       const inSelectedGroup=e.groups&&Array.from(e.groups).some(g=>relevantGroups.has(g));
       const drawings=e.sheetIds?e.sheetIds.size:0;
@@ -908,6 +922,7 @@
       if(drawings>1)bits.push(drawings+' drawings');
       if(e.usage)bits.push(e.usage+' placed');
       if(e.is_pec)bits.push('PEC reference');
+      else if(e.is_drawing_specific)bits.push('drawing-specific');
       else if(e.custom)bits.push('uploaded');
       const opt=new Option(e.label+(bits.length?'  ·  '+bits.join(' · '):''),e.key);
       opt.dataset.label=e.label;

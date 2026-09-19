@@ -46,79 +46,81 @@
   let addedSelectedHeader=false;
   let addedOtherHeader=false;
 
-  for(const entry of entries){
-    const rank=ranked(entry);
-    if(rank<2&&!addedSelectedHeader){
-      const div=document.createElement('div');
-      div.className='legend-section-divider';
-      const grpTitle='Selected Group '+(s.group!=null?s.group:'')+' & Placed Symbols';
-      div.innerHTML='<span>'+grpTitle+'</span><span class="badge">'+selectedGroupCount+' symbols</span>';
-      host.append(div);
-      addedSelectedHeader=true;
-    }else if(rank===2&&!addedOtherHeader&&selectedGroupCount>0){
-      const div=document.createElement('div');
-      div.className='legend-section-divider other-groups';
-      div.innerHTML='<span>Other Groups (Groups 1–28)</span><span class="badge">'+otherGroupCount+' symbols</span>';
-      host.append(div);
-      addedOtherHeader=true;
-    }
+    const seenCardKeys=new Set();
+    for(const entry of entries){
+      if(seenCardKeys.has(entry.key)) continue;
+      seenCardKeys.add(entry.key);
+      const rank=ranked(entry);
+      if(rank<2&&!addedSelectedHeader){
+        const div=document.createElement('div');
+        div.className='legend-section-divider';
+        const grpTitle='Selected Group '+(s.group!=null?s.group:'')+' & Placed Symbols';
+        div.innerHTML='<span>'+grpTitle+'</span><span class="badge">'+selectedGroupCount+' symbols</span>';
+        host.append(div);
+        addedSelectedHeader=true;
+      }else if(rank===2&&!addedOtherHeader&&selectedGroupCount>0){
+        const div=document.createElement('div');
+        div.className='legend-section-divider other-groups';
+        div.innerHTML='<span>Other Groups (Groups 1–28)</span><span class="badge">'+otherGroupCount+' symbols</span>';
+        host.append(div);
+        addedOtherHeader=true;
+      }
 
-    const src=registry.bestSource(entry.key,s.id);
-    const onSheet=registry.isUsedOn(entry.key,s.id);
-    const inSelectedGroup=entry.groups&&Array.from(entry.groups).some(g=>relevantGroups.has(g));
-    const card=document.createElement('div');
-    card.className='legend-card'+(onSheet?' legend-card-onsheet':(inSelectedGroup?' legend-card-selected-group':''));
+      const src=registry.bestSource(entry.key,s.id);
+      const onSheet=registry.isUsedOn(entry.key,s.id);
+      const inSelectedGroup=entry.groups&&Array.from(entry.groups).some(g=>relevantGroups.has(g));
+      const card=document.createElement('div');
+      card.className='legend-card'+(onSheet?' legend-card-onsheet':(inSelectedGroup?' legend-card-selected-group':''));
 
-    const b=document.createElement('button');
-    b.textContent=entry.label;
-    b.title=entry.label+(entry.aliases.size?'  ·  also known here as: '+Array.from(entry.aliases).join(', '):'');
-    b.addEventListener('click',()=>{
-     $('edit-class').value=entry.key;
-     $('edit-label').value=entry.label;
-     $('edit-layer').value='symbols';
-     const colorField=$('edit-legend-color');
-     if(colorField)colorField.value=window.reviewWorkspace.getLegendColor(entry.key)||'#1683ff';
-     tab('edit');
-     const selected=window.reviewWorkspace.getSelected?.();
-     if(selected){
-      $('update').click();
-      $('editor-status').textContent='Legend applied to the selected annotation: '+entry.label+'.';
-     }else{
-      // Just select/highlight whatever on THIS drawing already uses this
-      // symbol, in the annotation list. Never jump the canvas or switch to
-      // wherever the symbol happened to be first defined.
-      const count=window.reviewWorkspace.highlightLegendMatches?.(entry.key)||0;
-      $('editor-status').textContent=count
-       ? count+' annotation'+(count===1?'':'s')+' on this drawing use "'+entry.label+'" — highlighted in the list.'
-       : '"'+entry.label+'" loaded. Draw a new box, or select an annotation to apply it.';
-     }
-    });
+      const b=document.createElement('button');
+      b.textContent=entry.label;
+      b.title=entry.label+(entry.aliases.size?'  ·  also known here as: '+Array.from(entry.aliases).join(', '):'');
+      b.addEventListener('click',()=>{
+       $('edit-class').value=entry.key;
+       $('edit-label').value=entry.label;
+       $('edit-layer').value='symbols';
+       const colorField=$('edit-legend-color');
+       if(colorField)colorField.value=window.reviewWorkspace.getLegendColor(entry.key)||'#1683ff';
+       tab('edit');
+       const selected=window.reviewWorkspace.getSelected?.();
+       if(selected){
+        $('update').click();
+        $('editor-status').textContent='Legend applied to the selected annotation: '+entry.label+'.';
+       }else{
+        const count=window.reviewWorkspace.highlightLegendMatches?.(entry.key)||0;
+        $('editor-status').textContent=count
+         ? count+' annotation'+(count===1?'':'s')+' on this drawing use "'+entry.label+'" — highlighted in the list.'
+         : '"'+entry.label+'" loaded. Draw a new box, or select an annotation to apply it.';
+       }
+      });
 
-    const swatch=document.createElement('input');
-    swatch.type='color';swatch.className='legend-color-swatch';
-    swatch.title='Color used for this symbol on every drawing';
-    swatch.setAttribute('aria-label','Color for '+entry.label);
-    swatch.value=window.reviewWorkspace.getLegendColor(entry.key)||'#1683ff';
-    b.style.color=swatch.value;
-    swatch.addEventListener('click',e=>e.stopPropagation());
-    swatch.addEventListener('input',e=>{
-     e.stopPropagation();
-     window.reviewWorkspace.setLegendColor(entry.key,swatch.value);
-     b.style.color=swatch.value;
-     const colorField=$('edit-legend-color');
-     if(colorField&&$('edit-class').value===entry.key)colorField.value=swatch.value;
-    });
+      const swatch=document.createElement('input');
+      swatch.type='color';swatch.className='legend-color-swatch';
+      swatch.title='Color used for this symbol on every drawing';
+      swatch.setAttribute('aria-label','Color for '+entry.label);
+      swatch.value=window.reviewWorkspace.getLegendColor(entry.key)||'#1683ff';
+      b.style.color=swatch.value;
+      swatch.addEventListener('click',e=>e.stopPropagation());
+      swatch.addEventListener('input',e=>{
+       e.stopPropagation();
+       window.reviewWorkspace.setLegendColor(entry.key,swatch.value);
+       b.style.color=swatch.value;
+       const colorField=$('edit-legend-color');
+       if(colorField&&$('edit-class').value===entry.key)colorField.value=swatch.value;
+      });
 
-    if(src&&src.uploaded_crop){
-     const isPec=!!(entry.is_pec||src.is_pec||src.origin==='pec'||(src.group_name&&src.group_name.indexOf('PEC')!==-1));
-     const img=document.createElement('img');
-     img.src=src.uploaded_crop;img.alt=entry.label+(isPec?' (PEC reference symbol)':' (uploaded legend crop)');
-     img.style.cssText='width:100%;height:80px;object-fit:contain;background:#fff';
-     card.append(img);
-     const tag=document.createElement('small');
-     tag.textContent=isPec?'PEC reference source (Philippine Electrical Code)':'Uploaded reference — not part of the original drawing legend.';
-     card.append(tag);
-    }else if(src&&src.geometry&&src.geometry.type==='bbox'&&src.sheet_id){
+      if(src&&src.uploaded_crop){
+       const isPec=!!(entry.is_pec||src.is_pec||src.origin==='pec'||(src.group_name&&src.group_name.indexOf('PEC')!==-1));
+       const isDrawingSpecific=!!(entry.is_drawing_specific||src.is_drawing_specific||src.origin==='drawing'||(src.group_name&&src.group_name.indexOf('Drawing')!==-1));
+       const img=document.createElement('img');
+       img.src=src.uploaded_crop;
+       img.alt=entry.label+(isPec?' (PEC reference symbol)':(isDrawingSpecific?' (Drawing-specific reference)':' (uploaded legend crop)'));
+       img.style.cssText='width:100%;height:80px;object-fit:contain;background:#fff';
+       card.append(img);
+       const tag=document.createElement('small');
+       tag.textContent=isPec?'PEC reference source (Philippine Electrical Code)':(isDrawingSpecific?('Drawing-specific reference ('+(src.sheet_id||'project')+')'):'Uploaded reference — not part of the original drawing legend.');
+       card.append(tag);
+      }else if(src&&src.geometry&&src.geometry.type==='bbox'&&src.sheet_id){
      const sheet=(window.ANNOTATION_DATA.sheets||[]).find(x=>x.id===src.sheet_id);
      if(sheet&&sheet.image){
       const [x,y,r,bottom]=src.geometry.coordinates;

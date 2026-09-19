@@ -121,7 +121,24 @@ async function run() {
         'Smoke detector SD',
         'Heat detector HD',
         'Fire alarm control panel FACP',
-        'AC motor'
+        'AC motor',
+        'Conduit wiring',
+        'Open wiring',
+        'Underground wiring',
+        'Emergency wiring',
+        'Fire alarm wiring',
+        'Telephone wiring',
+        'Intercom wiring',
+        'Bell system wiring',
+        'TV antenna wiring',
+        'Closed circuit television (CCTV) wiring',
+        'Music wiring',
+        'Clock wiring',
+        'Lightning arrester',
+        'Main distribution panelboard (MDP)',
+        'Three-pole switch S3P',
+        'Four-way switch S4W',
+        'Main switchboard (MSB)'
       ];
 
       const foundSamples = sampleLabels.map(label => {
@@ -136,30 +153,65 @@ async function run() {
         };
       });
 
+      // Also check drawing-specific entries in registry
+      const drawingSpecificLabels = [
+        '200 mm LED recessed downlight',
+        '300 mm surface-mounted dome-type lighting fixture',
+        'LED tracklight',
+        'Panel downlight'
+      ];
+      const foundDrawingSpecific = drawingSpecificLabels.map(label => {
+        const item = reg.get(label);
+        return {
+          label,
+          found: !!item,
+          key: item?.key,
+          is_drawing_specific: item?.is_drawing_specific,
+          crop: item?.sources?.[0]?.uploaded_crop
+        };
+      });
+
+      // Deduplication check: two-pole switch variant
+      const switchTwoPole1 = reg.get('Switch two-pole (S2P)');
+      const switchTwoPole2 = reg.get('Two-pole switch (S2P)');
+      const switchKeyMatch = (switchTwoPole1 && switchTwoPole2 && switchTwoPole1.key === switchTwoPole2.key);
+
       return {
         totalCatalogue: list.length,
         pecCatalogueCount: pecSymbols.length,
         windowLegendListCount: window.legendList ? window.legendList.length : 0,
         windowListPecCount: windowListPec.length,
-        foundSamples
+        foundSamples,
+        foundDrawingSpecific,
+        switchKeyMatch,
+        switchKey1: switchTwoPole1?.key,
+        switchKey2: switchTwoPole2?.key
       };
     })()`);
 
     console.log('Registry check results:', JSON.stringify(registryCheck, null, 2));
-    assert(registryCheck.pecCatalogueCount >= 29, `Expected at least 29 PEC symbols in catalog, got ${registryCheck.pecCatalogueCount}`);
-    assert(registryCheck.windowListPecCount >= 29, `Expected at least 29 PEC symbols in window.legendList, got ${registryCheck.windowListPecCount}`);
+    assert(registryCheck.pecCatalogueCount >= 60, `Expected at least 60 PEC symbols in catalog, got ${registryCheck.pecCatalogueCount}`);
+    assert(registryCheck.windowListPecCount >= 60, `Expected at least 60 PEC symbols in window.legendList, got ${registryCheck.windowListPecCount}`);
     for (const sample of registryCheck.foundSamples) {
       assert.strictEqual(sample.found, true, `Sample symbol "${sample.label}" must exist in catalog`);
       assert.strictEqual(sample.is_pec, true, `Sample symbol "${sample.label}" must be flagged as is_pec`);
       assert(sample.crop, `Sample symbol "${sample.label}" must have a crop image path`);
     }
+    for (const sample of registryCheck.foundDrawingSpecific) {
+      assert.strictEqual(sample.found, true, `Drawing-specific symbol "${sample.label}" must exist in catalog`);
+      assert.strictEqual(sample.is_drawing_specific, true, `Drawing-specific symbol "${sample.label}" must be flagged as is_drawing_specific`);
+    }
+    assert.strictEqual(registryCheck.switchKeyMatch, true, 'Switch two-pole and Two-pole switch must merge to same canonical key');
 
     // 2. Verify PEC cards in Legends tab (#own-legend-entries)
-    console.log('\n--- 2. Verifying Legends Tab rendering of PEC cards ---');
+    console.log('\n--- 2. Verifying Legends Tab rendering of PEC cards and Reference list ---');
     await cdp.eval(`document.getElementById('tab-legends').click();`);
     await sleep(1000);
 
     const cardsCheck = await cdp.eval(`(() => {
+      const extRef = document.getElementById('external-reference');
+      const refHost = document.getElementById('reference-host');
+      const refSelect = refHost ? refHost.querySelector('select') : null;
       const host = document.getElementById('own-legend-entries');
       const cards = Array.from(host.querySelectorAll('.legend-card'));
       
@@ -168,8 +220,14 @@ async function run() {
         return text.includes('PEC reference') || text.includes('Philippine Electrical Code');
       });
 
+      const drawingCards = cards.filter(c => {
+        const text = c.textContent || '';
+        return text.includes('Drawing-specific reference');
+      });
+
       const groundCard = cards.find(c => c.querySelector('button')?.textContent?.trim() === 'Ground (Earth)');
-      const breakerCard = cards.find(c => c.querySelector('button')?.textContent?.trim() === 'Circuit breaker');
+      const conduitWiringCard = cards.find(c => c.querySelector('button')?.textContent?.trim() === 'Conduit wiring');
+      const downlightCard = cards.find(c => c.querySelector('button')?.textContent?.trim() === '200 mm LED recessed downlight');
 
       function inspectCard(card) {
         if (!card) return null;
@@ -186,34 +244,46 @@ async function run() {
         };
       }
 
+      // Check position: external-reference is before own-legend-entries
+      const isRefBeforeCards = !!(extRef && host && (extRef.compareDocumentPosition(host) & Node.DOCUMENT_POSITION_FOLLOWING));
+
       return {
         totalCards: cards.length,
         pecCardsCount: pecCards.length,
+        drawingCardsCount: drawingCards.length,
+        hasExternalRef: !!extRef,
+        isExternalRefOpen: extRef ? extRef.open : false,
+        isRefBeforeCards,
+        refSelectOptionCount: refSelect ? refSelect.options.length : 0,
         groundCard: inspectCard(groundCard),
-        breakerCard: inspectCard(breakerCard)
+        conduitWiringCard: inspectCard(conduitWiringCard),
+        downlightCard: inspectCard(downlightCard)
       };
     })()`);
 
     console.log('Cards check results:', JSON.stringify(cardsCheck, null, 2));
-    assert(cardsCheck.pecCardsCount >= 29, `Expected at least 29 PEC cards rendered, got ${cardsCheck.pecCardsCount}`);
-    assert(cardsCheck.groundCard, 'Ground (Earth) card must be rendered');
-    assert.strictEqual(cardsCheck.groundCard.imgSrc, 'references/pec-earth.png', 'Ground card must point to pec-earth image');
-    assert.strictEqual(cardsCheck.groundCard.tagText, 'PEC reference source (Philippine Electrical Code)', 'Ground card must display PEC tag');
-    assert.strictEqual(cardsCheck.groundCard.hasDeleteBtn, false, 'PEC card must not have a delete button');
+    assert(cardsCheck.hasExternalRef, 'Reference verification list details element must exist');
+    assert.strictEqual(cardsCheck.isExternalRefOpen, true, 'Reference verification list details must be open by default');
+    assert.strictEqual(cardsCheck.isRefBeforeCards, true, 'Reference verification list must be positioned before legend cards for immediate visibility');
+    assert(cardsCheck.refSelectOptionCount >= 80, `Reference select must contain all reference items, got ${cardsCheck.refSelectOptionCount}`);
+    assert(cardsCheck.pecCardsCount >= 60, `Expected at least 60 PEC cards rendered, got ${cardsCheck.pecCardsCount}`);
+    assert(cardsCheck.drawingCardsCount >= 4, `Expected drawing-specific cards rendered, got ${cardsCheck.drawingCardsCount}`);
 
-    assert(cardsCheck.breakerCard, 'Circuit breaker card must be rendered');
-    assert.strictEqual(cardsCheck.breakerCard.imgSrc, 'references/pec-breaker.png', 'Circuit breaker card must point to pec-breaker image');
-    assert.strictEqual(cardsCheck.breakerCard.hasDeleteBtn, false, 'Circuit breaker PEC card must not have a delete button');
+    assert(cardsCheck.groundCard, 'Ground (Earth) card must be rendered');
+    assert(cardsCheck.conduitWiringCard, 'Conduit wiring card must be rendered');
+    assert(cardsCheck.conduitWiringCard.imgSrc.includes('wiring-conduit'), 'Conduit wiring card must point to conduit wiring image');
+    assert(cardsCheck.downlightCard, '200 mm LED recessed downlight card must be rendered');
+    assert.strictEqual(cardsCheck.downlightCard.tagText.includes('Drawing-specific reference'), true, 'Downlight card must display Drawing-specific tag');
 
     await cdp.screenshot(path.resolve('.temp/test-pec-legends-tab.png'));
 
-    // 3. Verify interactive selection: clicking a PEC card loads it into Edit tab
-    console.log('\n--- 3. Testing card interaction (click Ground (Earth)) ---');
+    // 3. Verify interactive selection: clicking a wiring card loads it into Edit tab
+    console.log('\n--- 3. Testing card interaction (click Conduit wiring) ---');
     const clickResult = await cdp.eval(`(() => {
       const host = document.getElementById('own-legend-entries');
-      const groundCard = Array.from(host.querySelectorAll('.legend-card')).find(c => c.querySelector('button')?.textContent?.trim() === 'Ground (Earth)');
-      if (!groundCard) return { error: 'Card not found' };
-      groundCard.querySelector('button').click();
+      const wiringCard = Array.from(host.querySelectorAll('.legend-card')).find(c => c.querySelector('button')?.textContent?.trim() === 'Conduit wiring');
+      if (!wiringCard) return { error: 'Card not found' };
+      wiringCard.querySelector('button').click();
 
       const editClass = document.getElementById('edit-class').value;
       const editLabel = document.getElementById('edit-label').value;
@@ -229,42 +299,53 @@ async function run() {
     })()`);
 
     console.log('Click result:', JSON.stringify(clickResult, null, 2));
-    assert.strictEqual(clickResult.isEditTabActive, true, 'Clicking PEC card must switch to Edit tab');
-    assert.strictEqual(clickResult.editClass, 'u:ground-earth', 'Class picker must hold u:ground-earth');
-    assert.strictEqual(clickResult.editLabel, 'Ground (Earth)', 'Edit label must hold Ground (Earth)');
+    assert.strictEqual(clickResult.isEditTabActive, true, 'Clicking Conduit wiring card must switch to Edit tab');
+    assert.strictEqual(clickResult.editClass, 'u:conduit-wiring', 'Class picker must hold u:conduit-wiring');
+    assert.strictEqual(clickResult.editLabel, 'Conduit wiring', 'Edit label must hold Conduit wiring');
     assert.strictEqual(clickResult.editLayer, 'symbols', 'Edit layer must be set to symbols');
 
-    // 4. Verify #edit-class dropdown includes PEC classes with indicator
-    console.log('\n--- 4. Testing #edit-class options ---');
+    // 4. Verify #edit-class dropdown includes PEC and Drawing-specific classes without duplicates
+    console.log('\n--- 4. Testing #edit-class options and duplicate elimination ---');
     const dropdownCheck = await cdp.eval(`(() => {
       const sel = document.getElementById('edit-class');
       const options = Array.from(sel.options).map(o => ({ value: o.value, text: o.text }));
       const groundOpt = options.find(o => o.value === 'u:ground-earth');
-      const breakerOpt = options.find(o => o.value === 'u:circuit-breaker');
-      const smokeOpt = options.find(o => o.value === 'u:smoke-detector-sd');
+      const conduitOpt = options.find(o => o.value === 'u:conduit-wiring');
+      const cogeoOpt = options.find(o => o.value === 'u:200-led-recessed-downlight' || o.text.includes('200 mm LED'));
       const pecOptions = options.filter(o => o.text.includes('PEC reference'));
+      const drawingOptions = options.filter(o => o.text.includes('drawing-specific'));
+
+      // Check for value duplicates in select
+      const values = options.map(o => o.value);
+      const uniqueValues = new Set(values);
+      const duplicates = values.filter((v, i) => values.indexOf(v) !== i);
 
       return {
         totalOptions: options.length,
         pecOptionsCount: pecOptions.length,
+        drawingOptionsCount: drawingOptions.length,
+        duplicateValuesCount: duplicates.length,
+        duplicates: duplicates.slice(0, 5),
         groundOpt,
-        breakerOpt,
-        smokeOpt
+        conduitOpt,
+        cogeoOpt
       };
     })()`);
 
     console.log('Dropdown check results:', JSON.stringify(dropdownCheck, null, 2));
-    assert(dropdownCheck.pecOptionsCount >= 29, `Expected at least 29 options with PEC indicator, got ${dropdownCheck.pecOptionsCount}`);
+    assert(dropdownCheck.pecOptionsCount >= 60, `Expected at least 60 options with PEC indicator, got ${dropdownCheck.pecOptionsCount}`);
+    assert(dropdownCheck.drawingOptionsCount >= 4, `Expected at least 4 drawing-specific options, got ${dropdownCheck.drawingOptionsCount}`);
+    assert.strictEqual(dropdownCheck.duplicateValuesCount, 0, `Dropdown should have zero duplicate values, found: ${JSON.stringify(dropdownCheck.duplicates)}`);
     assert(dropdownCheck.groundOpt && dropdownCheck.groundOpt.text.includes('PEC reference'), 'Ground option must include PEC reference bit');
-    assert(dropdownCheck.breakerOpt && dropdownCheck.breakerOpt.text.includes('PEC reference'), 'Breaker option must include PEC reference bit');
-    assert(dropdownCheck.smokeOpt && dropdownCheck.smokeOpt.text.includes('PEC reference'), 'Smoke detector option must include PEC reference bit');
+    assert(dropdownCheck.conduitOpt && dropdownCheck.conduitOpt.text.includes('PEC reference'), 'Conduit option must include PEC reference bit');
+    assert(dropdownCheck.cogeoOpt && dropdownCheck.cogeoOpt.text.includes('drawing-specific'), 'Cogeo downlight option must include drawing-specific bit');
 
     // 5. Test search filter in Legends tab
-    console.log('\n--- 5. Testing Legends Tab search for "ground" ---');
+    console.log('\n--- 5. Testing Legends Tab search for "wiring" ---');
     await cdp.eval(`document.getElementById('tab-legends').click();`);
     const searchResult = await cdp.eval(`(() => {
       const searchInput = document.getElementById('legend-catalog-search');
-      searchInput.value = 'ground';
+      searchInput.value = 'wiring';
       searchInput.dispatchEvent(new Event('input', { bubbles: true }));
 
       const host = document.getElementById('own-legend-entries');
@@ -275,9 +356,11 @@ async function run() {
       };
     })()`);
 
-    console.log('Search results for "ground":', JSON.stringify(searchResult, null, 2));
-    assert(searchResult.matchedCardCount >= 1, 'Expected at least 1 match for "ground"');
-    assert(searchResult.matchedLabels.includes('Ground (Earth)'), 'Ground (Earth) must match search');
+    console.log('Search results for "wiring":', JSON.stringify(searchResult, null, 2));
+    assert(searchResult.matchedCardCount >= 10, 'Expected at least 10 matches for "wiring"');
+    assert(searchResult.matchedLabels.includes('Conduit wiring'), 'Conduit wiring must match search');
+    assert(searchResult.matchedLabels.includes('Emergency wiring'), 'Emergency wiring must match search');
+    assert(searchResult.matchedLabels.includes('Telephone wiring'), 'Telephone wiring must match search');
 
     // Clear search
     await cdp.eval(`(() => {
