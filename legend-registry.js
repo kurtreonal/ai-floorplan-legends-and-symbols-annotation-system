@@ -145,8 +145,11 @@
     if (!id) return null;
     if (isUniversalKey(id)) return id;
     if (this.aliases.has(id)) return this.aliases.get(id);
+    var lower = typeof id === 'string' ? id.toLowerCase().trim() : '';
+    if (lower && this.aliases.has(lower)) return this.aliases.get(lower);
     var byLabel = keyFor(id);
     if (byLabel && this.entries.has(byLabel)) return byLabel;
+    if (byLabel && this.aliases.has(byLabel)) return this.aliases.get(byLabel);
     var mk = matchKey(id);
     if (mk && this.byMatch.has(mk)) return this.byMatch.get(mk);
     return id;
@@ -358,6 +361,74 @@
     (drawingItems || []).forEach(function (d) { self.ingestDrawingSpecific(d); });
 
     (opts.custom || []).forEach(function (c) { self.ingestCustom(c); });
+
+    var CANONICAL_FALLBACK_ALIASES = {
+      'switch_single': 'pec-switch-single',
+      'switch-single': 'pec-switch-single',
+      'single-pole-switch': 'pec-switch-single',
+      'single-pole switch': 'pec-switch-single',
+      'single pole switch': 'pec-switch-single',
+      'single-pole switch s': 'pec-switch-single',
+      'single-pole switch (s)': 'pec-switch-single',
+      'switch': 'pec-switch-single',
+      'wall-switch': 'pec-switch-single',
+      'wall switch': 'pec-switch-single',
+      'switch_duplex': 'pec-switch-duplex',
+      'switch-duplex': 'pec-switch-duplex',
+      'switch_triplex': 'pec-switch-triplex',
+      'switch-triplex': 'pec-switch-triplex',
+      'switch_doublepole': 'pec-switch-doublepole',
+      'switch-doublepole': 'pec-switch-doublepole',
+      'switch_threeway': 'pec-switch-threeway',
+      'switch-threeway': 'pec-switch-threeway',
+      'troffer_lights': 'cogeo-troffer',
+      'troffer-lights': 'cogeo-troffer',
+      'troffer_light': 'cogeo-troffer',
+      'troffer-light': 'cogeo-troffer',
+      'troffer': 'cogeo-troffer',
+      'linear_fixture': 'pec-fluorescent',
+      'linear-fixture': 'pec-fluorescent',
+      'linear_lighting_fixture': 'pec-fluorescent',
+      'linear lighting fixture': 'pec-fluorescent',
+      'fluorescent_fixture': 'pec-fluorescent',
+      'receptacle_duplex': 'pec-duplex-outlet',
+      'receptacle-duplex': 'pec-duplex-outlet',
+      'duplex_convenience_outlet': 'pec-duplex-outlet',
+      'duplex convenience outlet': 'pec-duplex-outlet',
+      'duplex_3_prong_power_outlet': 'pec-duplex-outlet',
+      'duplex 3-prong power outlet': 'pec-duplex-outlet',
+      'smoke_detector': 'pec-smoke',
+      'smoke-detector': 'pec-smoke',
+      'smoke detector': 'pec-smoke',
+      'heat_detector': 'pec-heat',
+      'heat-detector': 'pec-heat',
+      'wall_fan': 'pec-fan',
+      'wall-fan': 'pec-fan',
+      'wall fan': 'pec-fan',
+      'air_conditioning_unit': 'pec-special-purpose-outlet',
+      'air-conditioning-unit': 'pec-special-purpose-outlet',
+      'circuit_homerun': 'pec-homerun',
+      'circuit-homerun': 'pec-homerun',
+      'panelboard': 'pec-power-panel',
+      'downlight': 'cogeo-downlight-200',
+      'recessed_downlight': 'cogeo-downlight-200',
+      'recessed downlight': 'cogeo-downlight-200'
+    };
+
+    for (var aKey in CANONICAL_FALLBACK_ALIASES) {
+      var targetId = CANONICAL_FALLBACK_ALIASES[aKey];
+      var resolvedUniversal = self.resolve(targetId);
+      if (resolvedUniversal && self.entries.has(resolvedUniversal)) {
+        self.link(aKey, resolvedUniversal);
+        self.link(aKey.toLowerCase(), resolvedUniversal);
+        self.link('u:' + aKey, resolvedUniversal);
+        var canonSlug = canonicalize(aKey);
+        if (canonSlug && canonSlug !== aKey) {
+          self.link(canonSlug, resolvedUniversal);
+          self.link('u:' + canonSlug, resolvedUniversal);
+        }
+      }
+    }
 
     /* Second pass: annotations on non-legend layers may reference a legacy id
      * whose legend row lives on a sheet we already scanned. Nothing to do for

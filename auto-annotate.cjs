@@ -870,7 +870,41 @@ function normalizeSymbolLabel(raw) {
   if (clean.includes('duplex') || clean.includes('receptacle') || /\bc\.?o\.?\b/.test(clean) || clean.includes('power outlet') || clean.includes('convenience outlet')) {
     return 'Duplex 3-prong power outlet';
   }
+  if (clean.includes('switch') || clean === 's' || clean === 's1' || clean === 's2' || clean === 's3' || clean === 's4') {
+    if (clean.includes('two pole') || clean.includes('double') || clean.includes('s2p')) return 'Double-pole switch S2P';
+    if (clean.includes('three pole') || clean.includes('s3p')) return 'Three-pole switch S3P';
+    if (clean.includes('three way') || clean.includes('s3w')) return 'Three-way switch S3W';
+    if (clean.includes('four way') || clean.includes('s4w')) return 'Four-way switch S4W';
+    return 'Single-pole switch S';
+  }
+  if (clean.includes('troffer')) {
+    return 'Troffer lights';
+  }
+  if (clean.includes('linear') || clean.includes('strip light') || clean.includes('fluorescent')) {
+    return 'Linear lighting fixture';
+  }
+  if (clean.includes('smoke') || clean.includes('detector') || clean.includes('heat')) {
+    return 'Smoke detector SD';
+  }
+  if (clean.includes('downlight')) {
+    return 'Recessed downlight';
+  }
   return raw;
+}
+
+function resolveLegendEntryForLabel(label) {
+  const l = String(label || '').toLowerCase().trim().replace(/[-_]/g, ' ');
+  if (l.includes('switch') || l === 's' || l === 's1') return 'pec-switch-single';
+  if (l.includes('troffer')) return 'cogeo-troffer';
+  if (l.includes('linear') || l.includes('fluorescent')) return 'pec-fluorescent';
+  if (l.includes('duplex') || l.includes('receptacle') || l.includes('outlet') || l.includes('c o') || l.includes('co')) return 'pec-duplex-outlet';
+  if (l.includes('smoke') || l.includes('detector') || l.includes('heat')) return 'pec-smoke';
+  if (l.includes('fan')) return 'pec-fan';
+  if (l.includes('air conditioning') || l.includes('acu')) return 'pec-special-purpose-outlet';
+  if (l.includes('homerun')) return 'pec-homerun';
+  if (l.includes('panelboard') || l.includes('panel') || l.includes('mdp')) return 'pec-power-panel';
+  if (l.includes('downlight')) return 'cogeo-downlight-200';
+  return null;
 }
 
 function computeBoxDistance(b1, b2) {
@@ -1369,16 +1403,16 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
 
   // Standard symbol classes for floor plans without pre-associated legend sheets
   const standardElectricalClasses = [
-    { legend_entry: 'troffer_lights', label: 'Troffer lights' },
-    { legend_entry: 'linear_fixture', label: 'Linear lighting fixture' },
-    { legend_entry: 'switch_single', label: 'Single-pole switch' },
-    { legend_entry: 'smoke_detector', label: 'Smoke detector' },
-    { legend_entry: 'downlight', label: 'Recessed downlight' },
-    { legend_entry: 'receptacle_duplex', label: 'Duplex 3-prong power outlet' },
-    { legend_entry: 'wall_fan', label: 'Wall fan' },
-    { legend_entry: 'air_conditioning_unit', label: 'Air conditioning unit' },
-    { legend_entry: 'circuit_homerun', label: 'Circuit homerun' },
-    { legend_entry: 'panelboard', label: 'Panelboard' }
+    { legend_entry: 'pec-switch-single', label: 'Single-pole switch S' },
+    { legend_entry: 'cogeo-troffer', label: 'Troffer lights' },
+    { legend_entry: 'pec-fluorescent', label: 'Linear lighting fixture' },
+    { legend_entry: 'pec-duplex-outlet', label: 'Duplex 3-prong power outlet' },
+    { legend_entry: 'pec-smoke', label: 'Smoke detector SD' },
+    { legend_entry: 'cogeo-downlight-200', label: 'Recessed downlight' },
+    { legend_entry: 'pec-fan', label: 'Wall fan' },
+    { legend_entry: 'pec-special-purpose-outlet', label: 'Air conditioning unit' },
+    { legend_entry: 'pec-homerun', label: 'Circuit homerun' },
+    { legend_entry: 'pec-power-panel', label: 'Panelboard' }
   ];
   if (!sheet.associated_legend_ids || sheet.associated_legend_ids.length === 0 || sheet.id.startsWith('imported-') || candidateClasses.length === 0) {
     candidateClasses.unshift(...standardElectricalClasses);
@@ -1530,10 +1564,11 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
               return computeIoU(yBox, aBox) >= 0.35;
             });
             if (!alreadyMatched) {
+              const normLbl = normalizeSymbolLabel(yd.label);
               merged.push({
                 reference_id: null,
-                legend_entry: null,
-                label: normalizeSymbolLabel(yd.label),
+                legend_entry: resolveLegendEntryForLabel(yd.label) || resolveLegendEntryForLabel(normLbl),
+                label: normLbl,
                 layer: 'symbols',
                 box_2d: yd.box_2d,
                 match_quality: yd.confidence >= 0.35 ? 'strong' : 'tentative',
@@ -1545,30 +1580,36 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
           parsedAnnotations = merged;
         } catch (apiErr) {
           console.warn(`[Auto-Annotate] AI symbol detector notice on ${tile.id} (${apiErr.message}). Gracefully falling back to saved YOLO detections.`);
-          parsedAnnotations = yoloDetections.map(d => ({
+          parsedAnnotations = yoloDetections.map(d => {
+            const normLbl = normalizeSymbolLabel(d.label);
+            return {
+              reference_id: null,
+              legend_entry: resolveLegendEntryForLabel(d.label) || resolveLegendEntryForLabel(normLbl),
+              label: normLbl,
+              layer: 'symbols',
+              box_2d: d.box_2d,
+              match_quality: d.confidence >= 0.35 ? 'strong' : 'tentative',
+              evidence: d.evidence || `Saved YOLO candidate (${d.confidence})`,
+              truncated: false
+            };
+          });
+          modelUsed = `local/${yoloRes.model || 'ved-symbols'} (saved)`;
+        }
+      } else {
+        // No API key configured or YOLO-only mode: use saved YOLO detections directly
+        parsedAnnotations = yoloDetections.map(d => {
+          const normLbl = normalizeSymbolLabel(d.label);
+          return {
             reference_id: null,
-            legend_entry: null,
-            label: normalizeSymbolLabel(d.label),
+            legend_entry: resolveLegendEntryForLabel(d.label) || resolveLegendEntryForLabel(normLbl),
+            label: normLbl,
             layer: 'symbols',
             box_2d: d.box_2d,
             match_quality: d.confidence >= 0.35 ? 'strong' : 'tentative',
             evidence: d.evidence || `Saved YOLO candidate (${d.confidence})`,
             truncated: false
-          }));
-          modelUsed = `local/${yoloRes.model || 'ved-symbols'} (saved)`;
-        }
-      } else {
-        // No API key configured or YOLO-only mode: use saved YOLO detections directly
-        parsedAnnotations = yoloDetections.map(d => ({
-          reference_id: null,
-          legend_entry: null,
-          label: normalizeSymbolLabel(d.label),
-          layer: 'symbols',
-          box_2d: d.box_2d,
-          match_quality: d.confidence >= 0.35 ? 'strong' : 'tentative',
-          evidence: d.evidence || `Saved YOLO candidate (${d.confidence})`,
-          truncated: false
-        }));
+          };
+        });
         modelUsed = `local/${yoloRes.model || 'ved-symbols'}`;
       }
     } else if (hasApiKey && !options.useYoloOnly) {
@@ -1735,17 +1776,26 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     generatedIds.add(uid);
 
     // Lookup legend entry provenance for cross-group compliance
-    let legendEntry = prop.legend_entry || null;
-    if (!legendEntry) {
-      if (prop.label === 'Duplex 3-prong power outlet') legendEntry = 'receptacle_duplex';
-      else if (prop.label === 'Wall fan') legendEntry = 'wall_fan';
-      else if (prop.label === 'Air conditioning unit') legendEntry = 'air_conditioning_unit';
-      else if (prop.label === 'Circuit homerun') legendEntry = 'circuit_homerun';
-      else if (prop.label === 'Panelboard') legendEntry = 'panelboard';
+    const normLabel = normalizeSymbolLabel(prop.label);
+    let legendEntry = prop.legend_entry || resolveLegendEntryForLabel(prop.label) || resolveLegendEntryForLabel(normLabel);
+
+    // If sheet has associated legends, check if an associated legend sheet defines a matching symbol
+    let sourceSheet = null;
+    if (sheet.associated_legend_ids && sheet.associated_legend_ids.length > 0) {
+      const cleanTarget = (normLabel || prop.label || '').toLowerCase();
+      for (const legSheetId of sheet.associated_legend_ids) {
+        const s = ref.sheets.find(x => x.id === legSheetId);
+        if (!s) continue;
+        const matchingAnno = (s.annotations || []).find(a => a.layer === 'legend' && a.label && a.label.toLowerCase().includes(cleanTarget));
+        if (matchingAnno && matchingAnno.legend_entry) {
+          legendEntry = matchingAnno.legend_entry;
+          sourceSheet = s;
+          break;
+        }
+      }
     }
 
-    let sourceSheet = null;
-    if (legendEntry) {
+    if (!sourceSheet && legendEntry) {
       sourceSheet = ref.sheets.find(s => (s.annotations || []).some(a => a.layer === 'legend' && a.legend_entry === legendEntry));
     }
     const isAssociated = !sourceSheet || (sheet.associated_legend_ids || []).includes(sourceSheet.id) || sheet.id === sourceSheet.id;
@@ -1760,9 +1810,10 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     finalAnnotations.push({
       id: uid,
       layer: prop.layer || 'symbols',
-      label: prop.label || 'Candidate device',
+      label: normLabel || prop.label || 'Candidate device',
       geometry: geometry,
       legend_entry: legendEntry,
+      legendKey: legendEntry,
       legend_scope: legendScope,
       legend_source: legendSource,
       review_state: 'needs_review',

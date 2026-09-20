@@ -28,7 +28,8 @@
     if(a.wall_type && wallTypeCatalog[a.wall_type]?.color){
       return wallTypeCatalog[a.wall_type].color;
     }
-    return a.legend_entry?colorForLegend(a.legend_entry):(colors[a.layer]||'#1683ff');
+    const leg = a.legend_entry || a.legendKey || (a.label ? legendKeyOf(a.label) : null);
+    return leg ? colorForLegend(leg) : (colors[a.layer] || '#1683ff');
   }
   function syncWallTypeUI(key){
     const select=$('edit-wall-type');
@@ -455,7 +456,8 @@
     const p=document.createElement('p');
     p.textContent=a.note||'Proposal requires review.';
     const small=document.createElement('small');
-    small.textContent=`${a.id} · ${a.review_state} · ${legendLabelOf(a.legend_entry||a.legendKey)||'No legend class assigned'}${a.wall_type?' · '+(wallTypeLabels[a.wall_type]||a.wall_type):''}`;
+    const legName=legendLabelOf(a.legend_entry||a.legendKey||a.label);
+    small.textContent=`${a.id} · ${a.review_state} · ${legName||'No legend class assigned'}${a.wall_type?' · '+(wallTypeLabels[a.wall_type]||a.wall_type):''}`;
     box.append(h,p,small);
   }
   function matchesAnnotationFilter(a,term){
@@ -464,7 +466,7 @@
     const idStr=(a.id||'').toLowerCase();
     const labelStr=(a.label||'').toLowerCase();
     const layerStr=(a.layer||'').toLowerCase();
-    const legendStr=((a.legend_entry||a.legendKey||'')+' '+legendLabelOf(a.legend_entry||a.legendKey)).toLowerCase();
+    const legendStr=((a.legend_entry||a.legendKey||'')+' '+legendLabelOf(a.legend_entry||a.legendKey||a.label)).toLowerCase();
     const statusStr=(a.review_state||'').toLowerCase();
     const wallStr=(a.wall_type||'').toLowerCase();
     const confStr=a.confidence!==undefined?String(a.confidence):'';
@@ -477,8 +479,13 @@
     let targetRow=null;
     let pendingAutoCount=0;
     for(const a of current.annotations){
-      if(!a.legendKey)a.legendKey=a.legend_entry;
-      const isAutoPending=(a.method==='auto_annotation_gemini'||(a.id&&a.id.includes('-ai-')) )&&a.review_state==='needs_review';
+      if(!a.legendKey) a.legendKey=a.legend_entry||(a.label?legendKeyOf(a.label):null);
+      if(!a.legend_entry&&a.legendKey) a.legend_entry=a.legendKey;
+      if((a.label==='switch_single'||a.label==='troffer_lights'||a.label==='linear_fixture'||a.label==='smoke_detector')&&a.legendKey){
+        const cleanName=legendLabelOf(a.legendKey);
+        if(cleanName)a.label=cleanName;
+      }
+      const isAutoPending=(a.method==='auto_annotation_gemini'||a.method==='auto_annotation_yolo'||a.method==='auto_annotation_groq'||(a.id&&a.id.includes('-ai-')) )&&a.review_state==='needs_review';
       if(isAutoPending)pendingAutoCount++;
       if(!enabled.has(a.layer)||a.review_state==='deleted'||!matchesAnnotationFilter(a,term))continue;
       const b=document.createElement('button');
@@ -487,7 +494,7 @@
       b.dataset.id=a.id;
       b.textContent=a.id.split('-').pop()+' · '+a.label;
       const small=document.createElement('small');
-      const legName=legendLabelOf(a.legend_entry||a.legendKey);const legText=legName?(' · '+(legName.length>22?legName.slice(0,20)+'…':legName)):'';
+      const legName=legendLabelOf(a.legend_entry||a.legendKey||a.label);const legText=legName?(' · '+(legName.length>22?legName.slice(0,20)+'…':legName)):'';
       small.textContent=a.layer+' · '+(isAutoPending?'auto suggestion':a.review_state)+legText;
       b.append(small);
       b.onclick=e=>{choose(a.id,{shift:e.shiftKey});if(!e.shiftKey)focusSelected();};
@@ -527,8 +534,17 @@
   function formSelection(){
     const a=selectedAnnotation();if(!a)return;
     $('edit-layer').value=a.layer;
+    const resolvedClass=legendKeyOf(a.legend_entry||a.legendKey||a.label)||'';
+    $('edit-class').value=resolvedClass;
+    if(resolvedClass && (!a.legendKey || !a.legend_entry)){
+      a.legendKey=resolvedClass;
+      if(!a.legend_entry)a.legend_entry=resolvedClass;
+    }
+    if((a.label==='switch_single'||a.label==='troffer_lights'||a.label==='linear_fixture'||a.label==='smoke_detector') && resolvedClass){
+      const legLabel=legendLabelOf(resolvedClass);
+      if(legLabel)a.label=legLabel;
+    }
     $('edit-label').value=a.label;
-    $('edit-class').value=legendKeyOf(a.legend_entry||a.legendKey)||'';
     $('edit-wall-type').value=a.wall_type||'';
     $('wall-type-field').hidden=a.layer!=='geometry';
     syncWallTypeUI(a.wall_type);
