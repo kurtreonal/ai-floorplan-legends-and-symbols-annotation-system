@@ -641,7 +641,7 @@ async function executeTargetRequest(target, requestContext, timeoutMs, isLastTar
 
       try {
         const scriptPath = path.join(__dirname, 'yolo_detect.py');
-        const confThreshold = process.env.YOLO_CONF || '0.20';
+        const confThreshold = process.env.YOLO_CONF || '0.50';
         const spawnArgs = [...pyCmd.args, scriptPath, '--image', tmpPath, '--model', target.model, '--conf', confThreshold];
 
         const proc = child_process.spawnSync(pyCmd.cmd, spawnArgs, {
@@ -800,7 +800,7 @@ function runYoloOnTile(targetBase64, tile, options = {}) {
 
   try {
     const scriptPath = path.join(__dirname, 'yolo_detect.py');
-    const confThreshold = options.yoloConf || process.env.YOLO_CONF || '0.15';
+    const confThreshold = options.yoloConf || process.env.YOLO_CONF || '0.50';
     const spawnArgs = [...pyCmd.args, scriptPath, '--image', tmpPath, '--model', modelPath, '--conf', String(confThreshold)];
 
     const proc = child_process.spawnSync(pyCmd.cmd, spawnArgs, {
