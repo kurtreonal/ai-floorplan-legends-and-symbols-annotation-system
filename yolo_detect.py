@@ -17,7 +17,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Ultralytics YOLO detector for floor plan symbols.")
     parser.add_argument("--image", type=str, required=True, help="Path to input image file.")
     parser.add_argument("--model", type=str, default="yolo26n.pt", help="YOLO model name or path (e.g. yolo26n.pt, yolo11n.pt).")
-    parser.add_argument("--conf", type=float, default=0.50, help="Confidence threshold (default: 0.50).")
+    parser.add_argument("--conf", type=float, default=0.15, help="Confidence threshold (default: 0.15).")
     parser.add_argument("--device", type=str, default="cpu", help="Compute device (default: cpu).")
     return parser.parse_args()
 

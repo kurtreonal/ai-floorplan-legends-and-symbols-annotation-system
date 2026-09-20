@@ -641,7 +641,7 @@ async function executeTargetRequest(target, requestContext, timeoutMs, isLastTar
 
       try {
         const scriptPath = path.join(__dirname, 'yolo_detect.py');
-        const confThreshold = process.env.YOLO_CONF || '0.50';
+        const confThreshold = process.env.YOLO_CONF || '0.15';
         const spawnArgs = [...pyCmd.args, scriptPath, '--image', tmpPath, '--model', target.model, '--conf', confThreshold];
 
         const proc = child_process.spawnSync(pyCmd.cmd, spawnArgs, {
@@ -800,7 +800,7 @@ function runYoloOnTile(targetBase64, tile, options = {}) {
 
   try {
     const scriptPath = path.join(__dirname, 'yolo_detect.py');
-    const confThreshold = options.yoloConf || process.env.YOLO_CONF || '0.50';
+    const confThreshold = options.yoloConf || process.env.YOLO_CONF || '0.15';
     const spawnArgs = [...pyCmd.args, scriptPath, '--image', tmpPath, '--model', modelPath, '--conf', String(confThreshold)];
 
     const proc = child_process.spawnSync(pyCmd.cmd, spawnArgs, {
@@ -894,22 +894,26 @@ async function improveDetectionsWithApi(targetBase64, tile, yoloDetections = [],
     confidence: d.confidence
   }));
 
-  const systemInstruction = `You are an expert electrical blueprint symbol detector and arbiter.
-Your mission is to detect all genuine electrical symbols in this floor plan tile image with normalized 0-1000 bounding boxes [ymin, xmin, ymax, xmax].
+  const systemInstruction = `You are an expert electrical and architectural blueprint symbol detector and arbiter.
+Your mission is to detect all genuine electrical, lighting, and auxiliary symbols in this floor plan tile image with normalized 0-1000 bounding boxes [ymin, xmin, ymax, xmax].
 
-IMPORTANT ELECTRICAL SYMBOL CLASSES TO DETECT:
-1. "receptacle_duplex": Duplex convenience outlet (small circle with 2 prongs or hash marks crossing through it, or labeled 'C.O.'). Detect every single C.O. outlet!
-2. "wall_fan": Wall fan (circle containing 'WF' letters). Detect all WF circles!
-3. "air_conditioning_unit": Air conditioning unit (circle containing a solid black triangular wedge pointer, labeled '1.50 ACU' or 'ACU').
-4. "circuit_homerun": True circuit homerun (thick curved arc terminating directly at a panelboard tag circle like '4 / MDP' or '2 / MDP').
-5. "panelboard": Distribution panel tag circle (such as '4 / MDP' or '2 / MDP').
+IMPORTANT SYMBOL CLASSES TO DETECT:
+1. "troffer_lights": Troffer lighting fixture (rectangular or square fluorescent or LED ceiling lighting panel). Detect all troffer lights!
+2. "linear_fixture": Linear lighting fixture, strip lighting, or unmapped linear lighting glyph.
+3. "receptacle_duplex": Duplex convenience outlet (small circle with 2 prongs or hash marks, or labeled 'C.O.'). Detect every single C.O. outlet!
+4. "switch_single": Wall switch (small 's', 's1', 's2', or circle with switch tag).
+5. "smoke_detector": Smoke detector / heat detector circles.
+6. "wall_fan": Wall fan (circle containing 'WF' letters).
+7. "air_conditioning_unit": Air conditioning unit (circle containing triangular pointer, labeled '1.50 ACU' or 'ACU').
+8. "circuit_homerun": True circuit homerun (thick curved arc terminating directly at a panelboard tag circle).
+9. "panelboard": Distribution panel tag circle.
 
-STRICT REJECTION RULES - Decide what is NOT an electrical symbol:
+STRICT REJECTION RULES - Decide what is NOT a symbol:
 - Architectural door swings (quarter-circle arcs with radial door lines) are NOT circuit homeruns. DISCARD them!
-- Dimension lines, wall lines, room boundary markers, and grid numbers (like 1, 2, 3, 4) MUST NOT be detected as symbols.
-- Title block text, sheet scales (e.g. 'SCALE 1:75'), and drawing titles (e.g. 'GROUND FLOOR POWER LAYOUT', '1/E-8') MUST NOT be detected.
+- Dimension lines, wall lines, room boundary markers, and grid numbers MUST NOT be detected as symbols.
+- Title block text, sheet scales (e.g. 'SCALE 1:75'), and drawing titles MUST NOT be detected.
 - Never detect empty margins or white space outside the building walls.
-- Bounding boxes must tightly fit around each symbol glyph (~20-35 pixels).
+- Bounding boxes must tightly fit around each symbol glyph.
 
 Return strictly valid JSON:
 {"status":"ok","annotations":[{"label":"string","legend_entry":"string or null","layer":"symbols","box_2d":[ymin,xmin,ymax,xmax],"match_quality":"strong"|"tentative","evidence":"string","truncated":false}]}`;
@@ -922,10 +926,9 @@ Legend catalog definitions:
 ${JSON.stringify((candidateClasses || []).slice(0, 30), null, 2)}
 
 Instructions:
-1. Detect all visible electrical symbols on this tile within the building interior walls: specifically all C.O. duplex convenience outlets, all WF wall fans, all 1.50 ACU air conditioners, all panelboard circles, and true circuit homeruns.
-2. DISCARD candidates in margins (grid bubbles 1, 2, 3, 4, dimension lines), door swings, wall lines, and title block text ('GROUND FLOOR POWER LAYOUT', '1/E-8', 'SCALE 1:75').
-3. Classify ONLY true curved arcs connecting to panelboard circles as circuit_homerun. Reject door swings.
-4. Tightly fit [ymin, xmin, ymax, xmax] around the electrical symbol glyph.
+1. Detect all visible electrical and lighting symbols on this tile: troffer lights, linear light fixtures, wall switches, smoke detectors, C.O. duplex convenience outlets, wall fans, ACU units, panelboards, and circuit homeruns.
+2. DISCARD candidates in margins (grid bubbles, dimension lines), door swings, wall lines, and title block text.
+3. Tightly fit [ymin, xmin, ymax, xmax] around each symbol glyph.
 Output strictly valid JSON.`;
 
   const timeoutMs = 45000;
@@ -1364,8 +1367,13 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     label: r.label
   })).filter((c, idx, arr) => arr.findIndex(x => x.legend_entry === c.legend_entry) === idx);
 
-  // Standard electrical symbol classes for floor plans without pre-associated legend sheets
+  // Standard symbol classes for floor plans without pre-associated legend sheets
   const standardElectricalClasses = [
+    { legend_entry: 'troffer_lights', label: 'Troffer lights' },
+    { legend_entry: 'linear_fixture', label: 'Linear lighting fixture' },
+    { legend_entry: 'switch_single', label: 'Single-pole switch' },
+    { legend_entry: 'smoke_detector', label: 'Smoke detector' },
+    { legend_entry: 'downlight', label: 'Recessed downlight' },
     { legend_entry: 'receptacle_duplex', label: 'Duplex 3-prong power outlet' },
     { legend_entry: 'wall_fan', label: 'Wall fan' },
     { legend_entry: 'air_conditioning_unit', label: 'Air conditioning unit' },
@@ -1507,9 +1515,34 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
         console.log(`[Auto-Annotate] Running AI symbol detector & arbiter (Gemini / Qwen) on ${tile.id} with ${yoloDetections.length} YOLO candidate hints...`);
         try {
           const improved = await improveDetectionsWithApi(targetBase64, tile, yoloDetections, candidateClasses, sheetId, options);
-          parsedAnnotations = improved.parsedResponse?.annotations || [];
+          const apiAnnos = improved.parsedResponse?.annotations || [];
           modelUsed = improved.modelUsed;
-          console.log(`[Auto-Annotate] AI symbol detector verified & decided ${parsedAnnotations.length} symbols on ${tile.id}.`);
+          console.log(`[Auto-Annotate] AI symbol detector verified & decided ${apiAnnos.length} symbols on ${tile.id}.`);
+
+          // Merge: keep all YOLO candidate detections, enriching with API labels where matched
+          const merged = [...apiAnnos];
+          for (const yd of yoloDetections) {
+            const yBox = [yd.box_2d[1], yd.box_2d[0], yd.box_2d[3], yd.box_2d[2]];
+            const alreadyMatched = apiAnnos.some(ad => {
+              const aBoxRaw = ad.box_2d || ad.bbox || (Array.isArray(ad.coordinates) && ad.coordinates.length === 4 ? ad.coordinates : null);
+              if (!aBoxRaw) return false;
+              const aBox = [aBoxRaw[1], aBoxRaw[0], aBoxRaw[3], aBoxRaw[2]];
+              return computeIoU(yBox, aBox) >= 0.35;
+            });
+            if (!alreadyMatched) {
+              merged.push({
+                reference_id: null,
+                legend_entry: null,
+                label: normalizeSymbolLabel(yd.label),
+                layer: 'symbols',
+                box_2d: yd.box_2d,
+                match_quality: yd.confidence >= 0.35 ? 'strong' : 'tentative',
+                evidence: yd.evidence || `YOLO ${yoloRes.model || 'ved-symbols'} (${yd.confidence})`,
+                truncated: false
+              });
+            }
+          }
+          parsedAnnotations = merged;
         } catch (apiErr) {
           console.warn(`[Auto-Annotate] AI symbol detector notice on ${tile.id} (${apiErr.message}). Gracefully falling back to saved YOLO detections.`);
           parsedAnnotations = yoloDetections.map(d => ({
@@ -1518,7 +1551,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
             label: normalizeSymbolLabel(d.label),
             layer: 'symbols',
             box_2d: d.box_2d,
-            match_quality: d.confidence >= 0.5 ? 'strong' : 'tentative',
+            match_quality: d.confidence >= 0.35 ? 'strong' : 'tentative',
             evidence: d.evidence || `Saved YOLO candidate (${d.confidence})`,
             truncated: false
           }));
@@ -1532,7 +1565,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
           label: normalizeSymbolLabel(d.label),
           layer: 'symbols',
           box_2d: d.box_2d,
-          match_quality: d.confidence >= 0.5 ? 'strong' : 'tentative',
+          match_quality: d.confidence >= 0.35 ? 'strong' : 'tentative',
           evidence: d.evidence || `Saved YOLO candidate (${d.confidence})`,
           truncated: false
         }));
