@@ -11,3 +11,7 @@ node_modules/
 
 # Generated AI training export datasets
 training_dataset/
+
+# Dynamic session progress and rolling snapshots
+data/saved-session*.json
+data/sessions/
