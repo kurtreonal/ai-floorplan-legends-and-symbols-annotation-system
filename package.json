@@ -4,6 +4,7 @@
   "description": "Portable floor plan review and multi-provider AI auto-annotation system (Ultralytics YOLO, Gemini Vision, Groq Qwen Vision)",
   "main": "server.cjs",
   "scripts": {
+    "test:dataset": "node --test tests/test-dataset-readiness.cjs tests/test-dataset-review-store.cjs tests/test-dataset-api.cjs tests/test-dataset-predictions.cjs",
     "start": "node server.cjs",
     "test": "node tests/test-auto-annotate.cjs",
     "test:server": "node tests/test-server-integration.cjs",

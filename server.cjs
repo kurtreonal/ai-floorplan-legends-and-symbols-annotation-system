@@ -7,6 +7,9 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 const crypto = require('crypto');
+const readiness = require('./dataset-readiness.cjs');
+const datasetReviews = require('./dataset-review-store.cjs');
+const datasetPredictions = require('./dataset-predictions.cjs');
 
 
 // Automatically load .env file if present (supported natively in Node 20.6+)
@@ -53,6 +56,10 @@ function sendJson(res, statusCode, data) {
 }
 
 function serveStatic(req, res, pathname) {
+  if (pathname.split('/').some(part => part.startsWith('.')) || /^\/(node_modules|models|training_dataset|backups|data\/dataset-review|data\/dataset-predictions)(\/|$)/.test(pathname) || /\.(cjs|py)$/i.test(pathname)) {
+    res.writeHead(403, { 'Content-Type': 'text/plain' });
+    res.end('Forbidden'); return;
+  }
   let filePath = path.join(ROOT_DIR, pathname === '/' ? 'review.html' : pathname);
 
   // If file not found in root, check data/ directory (e.g. starting-progress.json)
@@ -91,6 +98,11 @@ function serveStatic(req, res, pathname) {
 }
 
 const server = http.createServer((req, res) => {
+  const host = req.headers.host || '';
+  if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host) ||
+      (req.headers.origin && req.headers.origin !== `http://${host}`)) {
+    sendJson(res, 403, { error: 'Local same-origin access required' }); return;
+  }
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -107,22 +119,19 @@ const server = http.createServer((req, res) => {
 
   // API Status endpoint
   if (pathname === '/api/status' && req.method === 'GET') {
-    const hasGeminiKey = !!process.env.GEMINI_API_KEY;
-    const hasGroqKey = !!process.env.GROQ_API_KEY;
     const hasYolo = typeof isYoloAvailable === 'function' && isYoloAvailable();
     const sessionPath = path.join(ROOT_DIR, 'data', 'saved-session.json');
     sendJson(res, 200, {
       status: 'online',
-      has_gemini_api_key: hasGeminiKey,
-      has_groq_api_key: hasGroqKey,
+      has_gemini_api_key: false,
+      has_groq_api_key: false,
       has_local_yolo: hasYolo,
       has_saved_session: fs.existsSync(sessionPath),
-      primary_detector: hasYolo ? 'local_yolo (VED custom symbols)' : 'cloud fallback (custom YOLO unavailable)',
+      primary_detector: hasYolo ? 'local_yolo (VED custom symbols)' : 'local_model_unavailable',
+      local_only: true,
       yolo_models: hasYolo ? [path.basename(getYoloModelPath())] : [],
-      model: 'gemini-3.8-flash',
-      groq_model: process.env.GROQ_MODEL || 'qwen/qwen3.8-27b',
-      groq_fallback_model: process.env.GROQ_FALLBACK_MODEL || 'qwen/qwen3.6-27b',
-      model_hopping: true,
+      model: hasYolo ? 'local_yolo' : null,
+      model_hopping: false,
       workspace: 'VED-floor-plan-review-portable-2.0'
     });
     return;
@@ -132,6 +141,94 @@ const server = http.createServer((req, res) => {
   const sessionPath = path.join(ROOT_DIR, 'data', 'saved-session.json');
   const sessionBackupPath = path.join(ROOT_DIR, 'data', 'saved-session.backup.json');
   const sessionSnapshotsDir = path.join(ROOT_DIR, 'data', 'sessions');
+  const reviewDirectory = path.join(ROOT_DIR, 'data', 'dataset-review');
+
+  if (pathname === '/api/dataset-predictions' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; if (body.length > 8 * 1024 * 1024) req.destroy(); });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+        const references = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'data', 'approved-references.json'), 'utf8'));
+        const catalog = readiness.catalogOf(references);
+        const history = datasetReviews.readHistory(reviewDirectory);
+        const sealed = datasetReviews.sealedPages(history);
+        for (const sheet of payload.sheets) if (sheet.split === 'sealed_test') sealed.add(sheet.id);
+        const report = readiness.audit(payload, catalog, await readiness.sourceIndex(ROOT_DIR), sealed);
+        for (const page of report.pages) {
+          page.review = datasetReviews.pageReview(history, payload.sheets.find(s => s.id === page.id), catalog.version);
+          page.sealed_test = sealed.has(page.id);
+        }
+        const record = datasetPredictions.preparePredictions(JSON.parse(body), payload, catalog, report);
+        sendJson(res, 200, datasetPredictions.persistPredictions(path.join(ROOT_DIR, 'data', 'dataset-predictions'), record));
+      } catch (error) { sendJson(res, 422, { error: error.code ? 'Prediction import failed; no truth changed' : error.message }); }
+    });
+    return;
+  }
+
+  if (pathname === '/api/dataset-review' && req.method === 'POST') {
+    if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) {
+      sendJson(res, 403, { error: 'Same-origin local review required' }); return;
+    }
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > 16384) req.destroy();
+    });
+    req.on('end', () => {
+      try {
+        const request = JSON.parse(body);
+        const session = JSON.parse(fs.readFileSync(sessionPath, 'utf8'));
+        const sheet = session.sheets.find(s => s.id === request.page_id);
+        if (!sheet) throw Error('Unknown page');
+        const references = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'data', 'approved-references.json'), 'utf8'));
+        const record = datasetReviews.appendReview(reviewDirectory, sheet, request, readiness.catalogOf(references).version);
+        sendJson(res, 200, { status: 'recorded_local_attestation', hash: record.hash, training_approved: false });
+      } catch (error) {
+        sendJson(res, 409, { error: error.code ? 'Review could not be persisted; no approval granted' : error.message });
+      }
+    });
+    return;
+  }
+
+  if (['/api/dataset-readiness', '/api/dataset-symbol-candidates'].includes(pathname) && req.method === 'GET') {
+    (async () => {
+      try {
+        if (fs.statSync(sessionPath).size > 32 * 1024 * 1024) throw Error('Session exceeds audit size limit');
+        const sessionBytes = fs.readFileSync(sessionPath);
+        const payload = JSON.parse(sessionBytes.toString('utf8'));
+        const references = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, 'data', 'approved-references.json'), 'utf8'));
+        const catalog = readiness.catalogOf(references);
+        const history = datasetReviews.readHistory(reviewDirectory);
+        const sealed = datasetReviews.sealedPages(history);
+        for (const sheet of payload.sheets) if (sheet.split === 'sealed_test') sealed.add(sheet.id);
+        const report = readiness.audit(payload, catalog, await readiness.sourceIndex(ROOT_DIR), sealed);
+        report.review_head = history.at(-1)?.hash || null;
+        for (const page of report.pages) {
+          page.review = datasetReviews.pageReview(history, payload.sheets.find(s => s.id === page.id), report.catalog_version);
+          page.sealed_test = sealed.has(page.id);
+        }
+        report.proposed_class_coverage = readiness.proposedClassCoverage(report, catalog);
+        if (pathname === '/api/dataset-symbol-candidates') {
+          sendJson(res, 200, readiness.symbolCandidates(payload, report, catalog, readiness.digest(sessionBytes)));
+          return;
+        }
+        report.legend_previews = Object.fromEntries(catalog.entries.map(entry => [entry.id, {
+          label: entry.label,
+          examples: entry.examples.flatMap(example => {
+            const page = report.pages.find(p => p.id === example.source_sheet_id);
+            const box = example.geometry?.coordinates;
+            if (!page?.source_verified || page.sealed_test || !readiness.validBox({ geometry: example.geometry }, page)) return [];
+            return [{ image_url: page.image_url, box, page_id: page.id }];
+          }).slice(0, 2),
+        }]));
+        sendJson(res, 200, report);
+      } catch {
+        sendJson(res, 422, { error: 'Readiness audit unavailable. Check saved session and local reference integrity.' });
+      }
+    })();
+    return;
+  }
 
   function countUserEdits(session) {
     if (!session || !Array.isArray(session.sheets)) return 0;
@@ -320,6 +417,19 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        const reviews = datasetReviews.readHistory(reviewDirectory);
+        const saved = fs.existsSync(sessionPath) ? JSON.parse(fs.readFileSync(sessionPath, 'utf8')) : null;
+        if (saved?.sheets?.find(s => s.id === sheetId)?.split === 'sealed_test') {
+          sendJson(res, 409, { error: 'Sealed-test source excluded', code: 'SEALED_TEST_EXCLUDED' }); return;
+        }
+        const grouping = new Map();
+        for (const record of reviews.filter(r => r.action === 'project_proposal')) grouping.set(record.page_id, record.value);
+        const proposed = grouping.get(sheetId);
+        const sealedProjects = new Set([...grouping.values()].filter(v => v.split === 'sealed_test').map(v => v.project));
+        if (sheetMeta?.split === 'sealed_test' || proposed?.split === 'sealed_test' || sealedProjects.has(proposed?.project)) {
+          sendJson(res, 409, { error: 'Sealed-test sources are excluded from automatic proposals', code: 'SEALED_TEST_EXCLUDED' }); return;
+        }
+
         console.log(`[Auto-Annotate] Received request for sheet: ${sheetId}`);
         const annotateEngine = (delete require.cache[require.resolve('./auto-annotate.cjs')], require('./auto-annotate.cjs'));
         const result = await annotateEngine.runAutoAnnotation(sheetId, currentAnnotations, options, sheetMeta);
@@ -375,8 +485,8 @@ const server = http.createServer((req, res) => {
           message: `Saved ${summary.total_bounding_boxes} labels across ${summary.total_sheets} sheets to ${outputDir}`
         });
       } catch (error) {
-        console.error('[Export Training Data] Error:', error);
-        sendJson(res, 500, { error: error.message });
+        if (error.code !== 'DATASET_NOT_READY') console.error('[Export Training Data] Export failed.');
+        sendJson(res, error.code === 'DATASET_NOT_READY' ? 409 : 500, { error: error.message, code: error.code });
       }
     });
     return;
@@ -396,8 +506,7 @@ if (require.main === module) {
   server.listen(PORT, '127.0.0.1', () => {
     console.log(`VED Review & Auto-Annotation Server running at http://127.0.0.1:${PORT}/`);
     console.log(`Custom VED YOLO available: ${isYoloAvailable()} (${path.basename(getYoloModelPath())})`);
-    console.log(`Gemini API Key configured: ${!!process.env.GEMINI_API_KEY}`);
-    console.log(`Groq API Key configured: ${!!process.env.GROQ_API_KEY} (qwen3.8 with qwen3.6 fallback)`);
+    console.log('Local-only annotation: hosted providers and automatic training are disabled.');
   });
 }
 

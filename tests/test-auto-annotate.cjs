@@ -113,10 +113,10 @@ async function runTests() {
   process.env.ENABLE_LOCAL_YOLO = 'false';
   try {
     const noKeyResult = await runAutoAnnotation('sheet-45', []);
-    if (noKeyResult.status !== 'api_key_missing') {
-      throw new Error(`Expected status api_key_missing without key, got ${noKeyResult.status}`);
+    if (noKeyResult.status !== 'local_model_unavailable') {
+      throw new Error(`Expected local_model_unavailable without a local detector, got ${noKeyResult.status}`);
     }
-    console.log('Missing key correctly returned status api_key_missing (no silent fixture replay).');
+    console.log('Unavailable local detector reported honestly (no cloud or fixture fallback).');
   } finally {
     if (origKey) process.env.GEMINI_API_KEY = origKey;
     if (origGroq) process.env.GROQ_API_KEY = origGroq;

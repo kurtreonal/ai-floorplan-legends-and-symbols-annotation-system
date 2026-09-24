@@ -1,5 +1,110 @@
 # VED Floor Plan Review & Auto-Annotation System
 
+## Supervised-data safety checkpoint — 2026-09-21
+
+This checkpoint supersedes the older cloud-fallback and unrestricted-export
+instructions below. The application now uses **local inference only**. Stored
+provider keys do not enable hosted fallback or hosted refinement. Local detector
+failure is not training success. Cloud diagnostic scripts are legacy tools: do
+not run them on this private collection.
+
+Start with `npm start`. In **Page review → Dataset readiness**, choose **Audit
+saved annotations**. The audit reads the saved session, checks image hashes and
+dimensions, shows invalid symbol boxes and drawing-specific mapping proposals,
+and provides source/legend previews. Correct annotations using the existing
+editor; save them before recording a review.
+
+Layer completeness, review completion, readability and project/split proposals
+are separate local attestations. Each recorded decision stores its actor, date,
+annotation snapshot, content revision and catalog version in an append-only,
+hash-linked `data/dataset-review/` journal (Git-ignored). Changed annotations or
+catalogs invalidate prior decisions without deleting history. Typed reviewer
+names are **not authenticated dataset-approver identities**. No training approval
+is inferred from VED collection permission or a corrected annotation.
+
+Actual saved-session audit on 2026-09-24: 67 sheets, 28 organizational groups,
+67 matching image sources, 22 invalid active symbol boxes, 67 drawing legend
+identities across 48 distinct label texts. The candidate export currently has
+22 explicit mappings, 457 exact-label mapping proposals and 1,372 exclusions.
+Independent project verification
+is absent; 28 groups are not evidence of 28 independent projects. No training-ready
+pages are currently established. Detection metrics remain **NOT MEASURED**.
+Precision and recall of at least 85% at IoU 0.5 remain a proposed policy, separate
+from the configured detector confidence of 0.5.
+
+Verification: `npm run test:dataset` (20 passing tests) and `npm test` (existing
+engine suite passing). JavaScript syntax and `git diff --check` passed. The old
+missing-provider test was updated for the intentional `local_model_unavailable`
+contract. Full browser interaction is BLOCKED: the computer-use tool reported
+no available browser. Do not run the legacy
+`test:saved-session`/`test:session` harness against real data: its setup deletes
+the real saved-session and backup files.
+
+**Partial implementation, not a completed training workspace.** Unsafe legacy
+YOLO export now fails before writing anything (HTTP 409 / `DATASET_NOT_READY`).
+Existing training dataset directories and original source files remain intact.
+No valid training-export command is available at this checkpoint.
+
+The review JSON download now uses a versioned filename and preserves saved
+annotation coordinates exactly. The readiness panel links directly to pages and
+problem symbols, and shows reviewed box counts per drawing legend identity and
+exact label text. Its proposed train/validation counts flag labels that would
+be absent from training; matching text remains a review clue, not an automatic
+class merge;
+workspace groups remain unverified project identities. Choosing a drawing-scoped
+legend class while correcting a symbol records that explicit mapping.
+**Download reviewed symbol candidates** produces a versioned JSON bundle with
+verified source hashes, reviewed boxes, explicit drawing legend identities,
+exact-label mapping proposals, review state, and exclusion reasons. Proposals
+require visible human confirmation. It remains a candidate package (`training_approved=false`),
+not a training dataset or model input accepted by the VED approval pipeline. The
+training-export button reports the blocked gate without downloading a review
+JSON under a training-success message. These changes improve annotation quality
+and diagnostics; they do not establish model accuracy or authorize training.
+
+Exact next implementation scope:
+
+- Complete alias/conflict decision controls and bounded page-completion navigation.
+- Integrate a trusted dataset approval boundary; main VED approval workflow is
+  the proposed owner, not a self-declared browser role.
+- Implement separate immutable crop, complete-page detection and model-neutral
+  exports, with verified project/duplicate grouping and preserved split membership.
+- Finish prediction-history browsing and human error-decision controls. Local
+  import, immutable prediction artifacts, side-by-side full-page overlays and
+  diagnostic matching are implemented, but not browser-verified or gold evaluated.
+- Verify the new review UI in a browser and add isolated persistence/integration
+  coverage for the remaining flows. Keep real gold data and release acceptance pending.
+
+No automatic training, model activation or claimed 85% result is part of this
+checkpoint. Encryption remains deferred with user acceptance, not a passed control.
+
+Prediction import accepts local JSON only (8 MiB maximum):
+
+```json
+{
+  "schema": "ved-symbol-predictions-v1",
+  "model_id": "actual-local-model-identity",
+  "run_id": "actual-run-identity",
+  "pages": [{
+    "page_id": "sheet-ID",
+    "source_sha256": "actual-64-character-image-sha256",
+    "annotations": [{
+      "class_id": "drawing-legend-ID:entry-ID",
+      "box": [10, 20, 30, 40],
+      "confidence": 0.8
+    }]
+  }]
+}
+```
+
+Use actual catalog class IDs, source-pixel boxes and calibrated detector scores;
+do not substitute VLM token likelihoods for confidence. Predictions never alter
+human annotations. Complete/readable local symbol review permits diagnostic
+metrics only, not gold/release acceptance. Sealed-test membership, including
+related project proposals, blocks prediction review and automatic proposals.
+Imported artifacts retain their annotation revision; re-import a new revision
+after corrections rather than overwriting the prior result.
+
 ![Node.js](https://img.shields.io/badge/Node.js-v20+-339933?style=flat-square&logo=node.js&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10%20%7C%203.11-3776AB?style=flat-square&logo=python&logoColor=white)
 ![Ultralytics YOLO](https://img.shields.io/badge/YOLO-v11%20%7C%20v26%20%7C%20Custom-00FFFF?style=flat-square&logo=ultralytics&logoColor=black)

@@ -1025,6 +1025,9 @@
       a.label=$('edit-label').value.trim()||'Unresolved annotation';
       a.legend_entry=$('edit-class').value||null;
       a.legendKey=a.legend_entry;
+      if(a.layer==='symbols'){
+        a.class_state=C.isScopedLegend(current,a.legend_entry)?'approved_legend_mapping':'unmapped';
+      }
       a.wall_type=a.layer==='geometry'?($('edit-wall-type').value||null):null;
       if(a.wall_type&&wallTypeCatalog[a.wall_type]&&(!a.note||a.note==='Proposal requires review.')){
         a.note=wallTypeCatalog[a.wall_type].description;
@@ -1203,12 +1206,12 @@
   $('btn-auto-annotate')?.addEventListener('click',autoAnnotateCurrentSheet);
   $('accept-all-auto')?.addEventListener('click',acceptAllAuto);
   $('reject-all-auto')?.addEventListener('click',rejectAllAuto);
-  $('export').onclick=()=>{try{C.validateReview(payload(),baseline);const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(payload(),null,2)],{type:'application/json'}));a.download='ved-annotation-corrections.json';a.click();}catch(e){status('Export blocked: '+e.message);}};
+  $('export').onclick=()=>{try{const snapshot=C.preserveReviewExport(payload(),baseline);const a=document.createElement('a');const href=URL.createObjectURL(new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'}));a.href=href;a.download='ved-annotation-corrections-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(href),1000);status('Versioned review JSON downloaded. Audit dataset readiness before training.');}catch(e){status('Export blocked: '+e.message);}};
   $('btn-export-training')?.addEventListener('click',async ()=>{
     try {
-      status('Saving training dataset (images, YOLO .txt labels, and dataset.yaml)...');
+      status('Checking training export requirements...');
       const dataPayload=payload();
-      C.validateReview(dataPayload,baseline);
+      C.validateReview(C.clone(dataPayload),baseline);
       const res=await fetch('/api/export-training-data',{
         method:'POST',
         headers:{'Content-Type':'application/json'},
@@ -1221,10 +1224,9 @@
       const result=await res.json();
       const count=result.summary?.total_bounding_boxes||0;
       const sheetsCount=result.summary?.total_sheets||0;
-      status(`Training dataset saved! ${count} YOLO labels across ${sheetsCount} sheets written to training_dataset/ (ready for AI training).`);
+      status(`Training dataset saved: ${count} labels across ${sheetsCount} sheets.`);
     } catch(e) {
-      status('Server export failed: '+e.message+'. Downloading client JSON review export instead.');
-      $('export').click();
+      status('Training export unavailable: '+e.message+'. Use Export review for a versioned annotation backup.');
     }
   });
   window.addEventListener('keydown',e=>{const mod=e.ctrlKey||e.metaKey;if(mod&&e.key.toLowerCase()==='z'){$('undo').click();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='y'){$('redo').click();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='a'){$('btn-auto-annotate')?.click();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='c'){copySelection();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='v'){pasteSelection();e.preventDefault();}else if(mod&&e.key.toLowerCase()==='g'){e.preventDefault();(e.shiftKey?$('ungroup-selection'):$('group-selection')).click();}else if(e.key==='Backspace'){const tag=(e.target&&e.target.tagName||'').toLowerCase();if(tag==='input'||tag==='textarea'||e.target?.isContentEditable)return;e.preventDefault();if(drawing.length){drawing.pop();if(drawing.length)preview();else cancelDrawing();}else if(selected||multi.size){$('delete').click();}}else if(e.key==='Enter'&&drawing.length)window.reviewWorkspace.finishDrawing();else if(e.key==='Escape')cancelDrawing();else if(e.key==='+'||e.key==='=')zoom(.65);else if(e.key==='-')zoom(1.5);else if(e.key.toLowerCase()==='t')toggleTheme();else if(e.key.toLowerCase()==='f')fit();});
@@ -1233,6 +1235,17 @@
   function restoreReview(file){return file.text().then(text=>{let out;try{out=JSON.parse(text);}catch{throw Error('The selected file is not valid JSON.');}if(!out||out.schema!=='ved-editable-review-v2'||!Array.isArray(out.sheets))throw Error('Choose a VED review export JSON file.');if(!window.confirm('Importing this review will overwrite the current annotations and notes. Continue?'))return;const upgraded=C.upgradeReview(out,baseline);for(const sheet of upgraded.sheets){const target=D.sheets.find(s=>s.id===sheet.id);if(target)target.annotations=C.clone(sheet.annotations);}for(const key of Object.keys(decisions))delete decisions[key];Object.assign(decisions,upgraded.decisions||{});for(const key of Object.keys(legendColors))delete legendColors[key];Object.assign(legendColors,upgraded.legend_colors||{});load();populateLegendDropdowns();renderCoverage();persist();status('Review imported. Existing annotations and notes were replaced by the imported review.');}).catch(error=>status('Review import failed: '+error.message));}
   function removeSheet(id){const index=D.sheets.findIndex(sheet=>sheet.id===id);if(index<0)return false;const sheet=D.sheets[index];if(!sheet.id.startsWith('imported-')){status('Only imported floor plans can be removed.');return false;}if(!window.confirm('Delete this imported floor plan and all of its annotations?'))return false;D.sheets.splice(index,1);const baselineIndex=baseline.sheets.findIndex(item=>item.id===id);if(baselineIndex>=0)baseline.sheets.splice(baselineIndex,1);D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;const next=D.sheets[0];if(!next)return false;$('group').value=String(next.group);groupChanged();renderCoverage();status('Imported floor plan deleted.');return true;}
   window.reviewWorkspace={getCurrent:()=>current,getSelected:selectedAnnotation,getSelectedId:()=>selected,renderMarks,getStage:()=>stage,getMarksLayer:()=>marksLayer,getView:()=>view,annotationsAtPoint,handleSelectionClick,choose,refreshList:updateAnnotationList,updateAnnotationList,selectAll,handleCorrectedAction,populateLegendDropdowns,legendList:()=>window.legendList,persist,renderCoverage,getLegendColor:colorForLegend,setLegendColor,getRotation:()=>rotation,focusLegendSource,focusLegendByKey,highlightLegendMatches,relevantLegendGroups:relevantGroupsForSheet,legendRegistry:()=>window.LegendRegistry,resolveLegendKey:id=>legendKeyOf(id),legendLabel:id=>legendLabelOf(id),acceptAllAuto,rejectAllAuto,autoAnnotate:autoAnnotateCurrentSheet,applyWallType,syncWallTypeUI,renderWallTypeChips,getWallTypeCatalog:()=>wallTypeCatalog,removeAnnotationById(id){const index=current.annotations.findIndex(a=>a.id===id);if(index<0)return false;if(!window.confirm('Delete this legend or annotation?'))return false;checkpoint();current.annotations.splice(index,1);if(selected===id)selected=null;persist();renderMarks();updateAnnotationList();renderCoverage();return true;},addSheet(sheet){D.sheets.push(sheet);baseline.sheets.push(C.clone(sheet));D.counts.images=D.sheets.length;D.counts.groups=new Set(D.sheets.map(s=>s.group)).size;if(sheet.sheet_type==='legend_reference'){D.counts.legend_reference_sheets=(D.counts.legend_reference_sheets||0)+1;}else{D.counts.plans=(D.counts.plans||0)+1;}if(![...$('group').options].some(o=>o.value===String(sheet.group))){$('group').append(new Option(sheet.group_name||('Group '+sheet.group),sheet.group));}$('counts').textContent=`${D.counts.images} images · ${D.counts.groups} numbered groups · ${D.counts.plans} plans · ${D.counts.legend_reference_sheets} legend/reference sheets`;},clearAttachedImage(){attachedImage=null;if(current)load();},removeSheet};
+  window.reviewWorkspace.openSheet=(id,annotationId)=>{
+    const target=D.sheets.find(sheet=>sheet.id===id);
+    if(!target)return false;
+    attachedImage=null;
+    $('group').value=String(target.group);
+    const groupSheets=D.sheets.filter(sheet=>sheet.group===target.group);
+    $('sheet').replaceChildren(...groupSheets.map(sheet=>Object.assign(document.createElement('option'),{value:sheet.id,textContent:sheet.filename})));
+    $('sheet').value=id;
+    load(()=>{if(annotationId)choose(annotationId);});
+    return true;
+  };
   window.updateAnnotationList=updateAnnotationList;
   window.selectAll=selectAll;
   window.populateLegendDropdowns=populateLegendDropdowns;

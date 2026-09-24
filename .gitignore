@@ -15,3 +15,5 @@ training_dataset/
 # Dynamic session progress and rolling snapshots
 data/saved-session*.json
 data/sessions/
+data/dataset-review/
+data/dataset-predictions/

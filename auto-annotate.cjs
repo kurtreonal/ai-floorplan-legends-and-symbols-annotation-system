@@ -348,114 +348,10 @@ function isYoloAvailable() {
 // 4. Groq Model Fallback: Groq Qwen 3.6 (if Qwen 3.8 fails or is unavailable)
 // 5. Cloud Gemini Fallbacks: Gemini other models (3.7, 3.6, 3.5, 3.5-lite, flash-latest)
 function getCandidateTargets(options = {}) {
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
-  const groqModel = process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
-  const groqFallbackModel = process.env.GROQ_FALLBACK_MODEL || 'qwen/qwen3.6-27b';
-  const enableLocalYolo = process.env.ENABLE_LOCAL_YOLO !== 'false';
-
-  const targets = [];
-
-  // Selective overrides if requested in options
-  if (options.useYoloOnly || process.env.YOLO_ONLY === 'true') {
-    if (isYoloAvailable()) {
-      targets.push({ provider: 'local_yolo', model: getYoloModelPath(), label: 'local/ved-symbols' });
-    }
-    return targets;
-  }
-
-  if (options.useGroqOnly && groqKey && groqKey.trim()) {
-    targets.push({
-      provider: 'groq',
-      model: groqModel.trim(),
-      label: `groq/${groqModel.trim()}`,
-      apiKey: groqKey.trim()
-    });
-    if (groqFallbackModel && groqFallbackModel.trim() !== groqModel.trim()) {
-      targets.push({
-        provider: 'groq',
-        model: groqFallbackModel.trim(),
-        label: `groq/${groqFallbackModel.trim()}`,
-        apiKey: groqKey.trim()
-      });
-    }
-    return targets;
-  }
-
-  if (options.useGeminiOnly && geminiKey && geminiKey.trim()) {
-    const candidateModels = getCandidateModels();
-    for (const m of candidateModels) {
-      targets.push({
-        provider: 'gemini',
-        model: m,
-        label: m,
-        apiKey: geminiKey.trim()
-      });
-    }
-    return targets;
-  }
-
-  // --- STANDARD PRIORITIZED HIERARCHY ---
-
-  // Use weights fine-tuned on VED symbols, not generic COCO object detectors.
-  if (enableLocalYolo && isYoloAvailable()) {
-    targets.push({
-      provider: 'local_yolo',
-      model: getYoloModelPath(),
-      label: 'local/ved-symbols'
-    });
-  }
-
-  // 2. Cloud Primary: Gemini 3.8 Flash
-  if (geminiKey && geminiKey.trim()) {
-    targets.push({
-      provider: 'gemini',
-      model: 'gemini-3.8-flash',
-      label: 'gemini-3.8-flash',
-      apiKey: geminiKey.trim()
-    });
-  }
-
-  // 3. Groq Qwen 3.8 (Hop to Qwen 3.8 if 3.8 Flash fails or is tried)
-  if (groqKey && groqKey.trim()) {
-    targets.push({
-      provider: 'groq',
-      model: groqModel.trim(),
-      label: `groq/${groqModel.trim()}`,
-      apiKey: groqKey.trim()
-    });
-
-    // 4. Groq Qwen 3.6 fallback (Hop to 3.6 if 3.8 fails or is unavailable)
-    if (groqFallbackModel && groqFallbackModel.trim() !== groqModel.trim()) {
-      targets.push({
-        provider: 'groq',
-        model: groqFallbackModel.trim(),
-        label: `groq/${groqFallbackModel.trim()}`,
-        apiKey: groqKey.trim()
-      });
-    }
-  }
-
-  // 5. Fallback Gemini Models (Hop to other Gemini models if needed)
-  if (geminiKey && geminiKey.trim()) {
-    const geminiFallbacks = [
-      'gemini-3.7-flash',
-      'gemini-3.6-flash',
-      'gemini-3.5-flash',
-      'gemini-3.5-flash-lite',
-      'gemini-flash-latest'
-    ];
-    for (const m of geminiFallbacks) {
-      targets.push({
-        provider: 'gemini',
-        model: m,
-        label: m,
-        apiKey: geminiKey.trim()
-      });
-    }
-  }
-
-  return targets;
+  // Private workflow: explicit provider overrides cannot enable hosted inference.
+  return process.env.ENABLE_LOCAL_YOLO !== 'false' && isYoloAvailable()
+    ? [{ provider: 'local_yolo', model: getYoloModelPath(), label: 'local/ved-symbols' }]
+    : [];
 }
 
 function getCandidateTargetsForAttempt(options = {}) {
@@ -511,6 +407,7 @@ function validateGroqDetection(parsed) {
 
 // Executes a single vision request against local YOLO, Gemini, or Groq
 async function executeTargetRequest(target, requestContext, timeoutMs, isLastTarget = false) {
+  if (target.provider !== 'local_yolo') throw new Error('Hosted inference is disabled in this private workspace.');
   const { manifest, systemInstruction, responseSchema, targetBase64, contactSheets } = requestContext;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -921,6 +818,7 @@ function computeBoxDistance(b1, b2) {
 // and arbitrate what to detect and what to reject (pruning door swings and false homeruns).
 // Sends single tile image with zero contact sheets (<85% token usage).
 async function improveDetectionsWithApi(targetBase64, tile, yoloDetections = [], candidateClasses = [], sheetId, options = {}) {
+  throw new Error('Hosted refinement is disabled in this private workspace.');
   const priors = (yoloDetections || []).map((d, i) => ({
     id: `c${i + 1}`,
     box_2d: d.box_2d,
@@ -1234,6 +1132,7 @@ Return strictly JSON: {"status":"ok","annotations":[{"label":"string","layer":"s
 
 // Main auto-annotation execution function
 async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {}, sheetMeta = null) {
+  options = { ...options, useYoloOnly: true, useCloudOnly: false, useGroqOnly: false, useGeminiOnly: false };
   const ref = loadReferences();
   if (!ref) {
     throw new Error('Approved reference data not loaded. Run prepare-approved-data.cjs first.');
@@ -1261,6 +1160,9 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
   }
 
   // Multi-role rule: Legend reference sheets are not annotated
+  if (sheet.split === 'sealed_test' || sheetMeta?.split === 'sealed_test') {
+    return { sheet_id: sheetId, status: 'sealed_test_excluded', annotations: [], count: 0 };
+  }
   if (sheet.sheet_type === 'legend_reference') {
     return {
       sheet_id: sheetId,
@@ -1318,8 +1220,8 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
   if (!getCandidateTargets(options).length) {
     return {
       sheet_id: sheetId,
-      status: 'api_key_missing',
-      message: 'No detection engine is available. GEMINI_API_KEY or GROQ_API_KEY is not configured and local YOLO is unavailable.',
+      status: 'local_model_unavailable',
+      message: 'Local detector unavailable; cloud fallback is disabled.',
       count: 0,
       annotations: []
     };
@@ -1531,7 +1433,7 @@ async function runAutoAnnotation(sheetId, currentAnnotations = [], options = {},
     let modelUsed = lastUsedModel;
 
     const useLocalYolo = isYoloAvailable() && process.env.ENABLE_LOCAL_YOLO !== 'false' && !options.useCloudOnly;
-    const hasApiKey = !!process.env.GEMINI_API_KEY || !!process.env.GROQ_API_KEY;
+    const hasApiKey = false; // Hosted arbitration is disabled even with stored keys.
 
     if (useLocalYolo) {
       console.log(`[Auto-Annotate] Running local YOLO candidate detection on ${tile.id}...`);

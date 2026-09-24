@@ -118,3 +118,11 @@ html.workspace-fullscreen .summary {
 }
 
 
+/* Dataset review uses existing panel/theme; source and legend remain separate. */
+.dataset-glyph-pair { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.dataset-glyph-pair figure { margin: 0; max-width: 10rem; }
+.dataset-glyph-pair svg { border: 1px solid currentColor; background: white; }
+.dataset-glyph-pair figcaption { overflow-wrap: anywhere; font-size: 0.85rem; }
+.dataset-page-pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.75rem; }
+.dataset-page-pair figure { margin: 0; min-width: 0; }
+.dataset-page-pair svg { background: white; }

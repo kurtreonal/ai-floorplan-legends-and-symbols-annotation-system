@@ -1,6 +1,11 @@
 (function(root){
  'use strict';
  const clone=x=>JSON.parse(JSON.stringify(x));
+ function isScopedLegend(sheet,entry){
+  if(typeof entry!=='string'||!entry.includes(':')||entry.startsWith('u:'))return false;
+  const sourceId=entry.split(':')[0];
+  return new Set([sheet.id,...(sheet.associated_legend_ids||[])]).has(sourceId);
+ }
  function validGeometry(g,w,h){
   if(!g || !Array.isArray(g.coordinates))return false;
   let points;
@@ -100,6 +105,13 @@
    }
   }return true;
  }
+ function preserveReviewExport(payload,base){
+  const snapshot=clone(payload);
+  // The legacy validator repairs malformed boxes. Run it on a throwaway copy:
+  // the review export must retain exactly what the reviewer saved.
+  validateReview(clone(snapshot),base);
+  return snapshot;
+ }
  function upgradeReview(payload,base){
   const normalized=normalizeImportedReview(payload,base);
   const out=clone(normalized);
@@ -125,6 +137,6 @@
   return out;
  }
  function mergeProposals(data,items){let count=0;for(const item of items){const s=data.sheets.find(s=>s.id===item.sheet_id);if(!s||s.sha256!==item.source_sha256||!validGeometry(item.annotation.geometry,s.width,s.height))throw Error('Supplemental proposal source/geometry mismatch.');if(!s.annotations.some(a=>a.id===item.annotation.id)){s.annotations.push(clone(item.annotation));count++;}}return count;}
- const api={clone,validGeometry,translate,validateReview,upgradeReview,mergeProposals};root.AnnotationCore=api;
+ const api={clone,isScopedLegend,validGeometry,translate,validateReview,preserveReviewExport,upgradeReview,mergeProposals};root.AnnotationCore=api;
  if(typeof module!=='undefined')module.exports=api;
 })(typeof window!=='undefined'?window:globalThis);
